@@ -1,6 +1,6 @@
 import { DUNGEON_PLACES, OVERWORLD, placeAt } from './places.js';
 import type { ClassId, Dimension, Rarity, Slot, Vec } from './types.js';
-export const VERSION = '1.4.1';
+export const VERSION = '1.5.0';
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 48;
 export const MAX_LEVEL = 30;

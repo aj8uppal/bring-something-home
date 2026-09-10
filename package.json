@@ -1,6 +1,6 @@
 {
   "name": "bring-something-home",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "private": true,
   "type": "module",
   "description": "A cooperative 3D bullet-hell RPG of shared expeditions, personal loot, and persistent legacy.",

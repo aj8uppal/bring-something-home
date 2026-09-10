@@ -1,4 +1,4 @@
-# Bring Something Home · validation record · 1.4.1 + Phases 0–5
+# Bring Something Home · validation record · 1.5.0 (Phases 0–5)
 
 Validated September 5, 2026 on macOS with Node 24.20.0, Three.js 0.185.1,
 TypeScript 7.0.2, Vite 8.2.2, and Playwright 1.63.0. Local and public results are
