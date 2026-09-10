@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { templateOf } from '../shared/instances.js';
 import { Store } from '../server/database.js';
 import { Realm, type Player } from '../server/realm.js';
 import { makeItem, stats } from '../server/model.js';
@@ -24,7 +25,7 @@ function enter(realm: Realm, p: Player, dim: DungeonId) {
   p.x = DUNGEONS[dim].x;
   p.z = DUNGEONS[dim].z;
   realm.action(p.profile.id, 'interact');
-  assert.equal(p.dimension, dim);
+  assert.equal(templateOf(p.dimension), dim);
 }
 function clearStage(realm: Realm, p: Player) {
   const dim = p.dimension as DungeonId;
@@ -66,7 +67,7 @@ test('Elder entry requires both account victory and level 20, and depth cannot s
   assert.equal(p.dimension, 'wilds');
   c.level = 20;
   realm.action(p.profile.id, 'interact');
-  assert.equal(p.dimension, 'eclipse');
+  assert.equal(templateOf(p.dimension), 'eclipse');
   realm.recall(p);
   realm.action(p.profile.id, 'attune', '12');
   assert.equal(ensureLegacy(p.profile).selectedDepth, 1);
@@ -146,7 +147,10 @@ test('empty expeditions clean up enemies and hazards after the reconnect grace p
   realm.time += 61;
   realm.dungeons.step();
   assert.equal(realm.dungeons.state('crucible'), undefined);
-  assert.equal([...realm.enemies.values()].filter((e) => e.dimension === 'crucible').length, 0);
+  assert.equal(
+    [...realm.enemies.values()].filter((e) => templateOf(e.dimension) === 'crucible').length,
+    0,
+  );
   enter(realm, p, 'crucible');
   assert.equal(realm.dungeons.state('crucible')!.stage, 1);
   store.close();
@@ -222,10 +226,10 @@ test('stacked loot picks the displayed id, respects ownership, and defaults to t
 });
 test('floor attacks are locked, telegraphed, hit once, respect dodges, and vanish when their owner dies', () => {
   const { realm, p, c, store } = setup();
-  p.dimension = 'eclipse';
+  p.dimension = realm.dungeons.enter(p, 'eclipse')!.id;
   p.z = 0;
   p.invulnerableUntil = 0;
-  const boss = realm.spawn('tideelder', 0, -12, 'eclipse');
+  const boss = realm.spawn('tideelder', 0, -12, p.dimension);
   realm.summonHazards(boss, p);
   const hazard = [...realm.hazards.values()][0];
   const hp = c.hp;
@@ -273,12 +277,12 @@ test('protocol preserves the fourth dimension, expedition progress, and timed ha
   p.profile.victories = 1;
   c.level = 20;
   enter(realm, p, 'eclipse');
-  const boss = realm.spawn('nullelder', 0, 0, 'eclipse');
+  const boss = realm.spawn('nullelder', 0, 0, p.dimension);
   realm.summonHazards(boss, p);
   realm.broadcast();
   const state = messages.filter((m) => m.type === 'snapshot').at(-1) as Snapshot;
   const decoded = new Decoder().decode(new Encoder().encode(state));
-  assert.equal(decoded.self.dimension, 'eclipse');
+  assert.equal(templateOf(decoded.self.dimension), 'eclipse');
   assert.deepEqual(decoded.dungeon, state.dungeon);
   assert.deepEqual(decoded.hazards, state.hazards);
   assert.equal(decoded.enemies[0].kind, 'nullelder');
@@ -298,7 +302,7 @@ test('depth and group health scaling compose without dropping the expedition mul
   const base = boss.maxHp;
   assert.ok(base > ENEMIES.tideelder.hp * 2);
   const ally = realm.add(store.create('Ally').profile, 'sentinel', () => {});
-  ally.dimension = 'eclipse';
+  ally.dimension = p.dimension;
   ally.x = 0;
   ally.z = 0;
   p.x = boss.x;
@@ -384,10 +388,10 @@ test('rally travel requires sanctuary and respects Elder progression and occupie
     realm.action(p.profile.id, 'rally', 'eclipse');
     assert.equal(p.dimension, 'wilds');
     realm.action(p.profile.id, 'rally', 'hollow');
-    assert.equal(p.dimension, 'hollow');
+    assert.equal(templateOf(p.dimension), 'hollow');
     assert.equal(p.z, 22);
     for (let i = 0; i < 3; i++) clearStage(realm, p);
-    const previous = realm.dungeons.runs.get('hollow')!.id;
+    const previous = realm.dungeons.run('hollow')!.id;
     const friend = realm.add(store.create('Friend').profile, 'ranger', () => {});
     realm.action(friend.profile.id, 'rally', 'hollow');
     assert.equal(
@@ -395,11 +399,11 @@ test('rally travel requires sanctuary and respects Elder progression and occupie
       'wilds',
       'rally cannot strand a new group inside a finished run',
     );
-    assert.equal(realm.dungeons.runs.get('hollow')!.id, previous);
+    assert.equal(realm.dungeons.run('hollow')!.id, previous);
     realm.recall(p);
     realm.action(friend.profile.id, 'rally', 'hollow');
-    assert.equal(friend.dimension, 'hollow');
-    assert.notEqual(realm.dungeons.runs.get('hollow')!.id, previous);
+    assert.equal(templateOf(friend.dimension), 'hollow');
+    assert.notEqual(realm.dungeons.run('hollow')!.id, previous);
     assert.equal(realm.dungeons.state('hollow')!.stage, 1);
   } finally {
     store.close();
@@ -417,9 +421,9 @@ test('friends see a common rally roster from different dimensions and share the 
     assert.equal(listing.population, 1);
     assert.equal(listing.travelers[0].name, 'Moss');
     assert.equal(listing.started, false);
-    const runId = realm.dungeons.runs.get('crucible')!.id;
+    const runId = realm.dungeons.run('crucible')!.id;
     realm.action(p.profile.id, 'rally', 'crucible');
-    assert.equal(realm.dungeons.runs.get('crucible')!.id, runId);
+    assert.equal(realm.dungeons.run('crucible')!.id, runId);
     assert.equal(realm.dungeons.list().find((e) => e.dimension === 'crucible')!.population, 2);
     Object.assign(p, realm.dungeons.state('crucible')!.altar);
     realm.action(p.profile.id, 'delve');

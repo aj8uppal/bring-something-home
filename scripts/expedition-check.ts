@@ -50,7 +50,7 @@ for (const cls of ['arcanist', 'ranger', 'sentinel'] as ClassId[]) {
         lastStage = state.stage;
       }
       const enemies = [...realm.enemies.values()]
-        .filter((e) => e.dimension === dim)
+        .filter((e) => e.dimension === p.dimension)
         .sort((a, b) => distance(a, p) - distance(b, p));
       const target = state.status === 'ready' ? state.altar : enemies[0];
       if (!target) throw new Error('An active chamber has no target');

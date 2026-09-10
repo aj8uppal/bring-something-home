@@ -1,6 +1,7 @@
 import { CLASSES, HAVEN } from '../../shared/content';
 import { ISLAND, propsInBox, PROPS } from '../../shared/world';
 import { WILDS_RADIUS } from '../../shared/places';
+import { templateOf } from '../../shared/instances';
 import {
   DUNGEON_PLACES,
   OVERWORLD,
@@ -307,12 +308,9 @@ function drawInterior(
     cy = h * (large ? 0.51 : 0.5);
   const s = (Math.min(w, h) / (large ? 196 : 189)) * 2;
   const at: Project = (x, z) => [cx + x * s, cy + z * s] as const;
+  const template = templateOf(snapshot.self.dimension);
   ctx.fillStyle =
-    snapshot.self.dimension === 'hollow'
-      ? '#455e5b'
-      : snapshot.self.dimension === 'eclipse'
-        ? '#49445f'
-        : '#615246';
+    template === 'hollow' ? '#455e5b' : template === 'eclipse' ? '#49445f' : '#615246';
   ctx.strokeStyle = '#bea779';
   ctx.lineWidth = 2;
   ctx.fillRect(cx - 30 * s, cy - 30 * s, 60 * s, 60 * s);

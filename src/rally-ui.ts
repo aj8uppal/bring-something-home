@@ -4,6 +4,7 @@ import { BOSS_RELICS } from '../shared/combat';
 import { relicChase } from '../shared/chase';
 import type { DungeonId, Profile, Snapshot } from '../shared/types';
 import { icon, escapeHtml as esc } from './icons';
+import { templateOf } from '../shared/instances';
 
 export const runDuration = (seconds: number) =>
   `${Math.floor(seconds / 60)}:${String(Math.floor(seconds % 60)).padStart(2, '0')}`;
@@ -33,7 +34,7 @@ export function rallyPanel(profile: Profile | null, snapshot?: Snapshot, invited
       .map((dim) => {
         const def = DUNGEONS[dim],
           listing = snapshot?.expeditions?.find((e) => e.dimension === dim),
-          here = snapshot?.self.dimension === dim,
+          here = templateOf(snapshot?.self.dimension ?? 'wilds') === dim,
           travelers = listing?.travelers ?? [],
           population = listing?.population ?? travelers.length,
           locked = dim === 'eclipse' && (!profile?.victories || (c?.level ?? 0) < 20),

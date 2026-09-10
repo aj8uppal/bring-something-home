@@ -1,5 +1,5 @@
-import { randomUUID } from 'node:crypto';
 import { DUNGEONS, ENEMIES, distance } from '../shared/content.js';
+import { instanceId, templateOf } from '../shared/instances.js';
 import {
   EXPEDITIONS,
   MAX_DEPTH,
@@ -10,16 +10,30 @@ import {
 } from '../shared/endgame.js';
 import type {
   ClassId,
+  Dimension,
   DungeonId,
   DungeonState,
   ExpeditionListing,
   ExpeditionResult,
+  Instance,
 } from '../shared/types.js';
 import type { Player, Realm } from './realm.js';
 import { makeItem, stats } from './model.js';
 
+/** The three story dungeons always exist at the Hearth and are never capped away. */
+export const STORY_TEMPLATES = Object.keys(DUNGEONS);
+/**
+ * Scale boundaries. A realm holds at most this many live instances at once, and at most
+ * this many of any one template, so a busy realm cannot be turned into unbounded state by
+ * a crowd farming doors. The three story instances are always kept.
+ */
+export const MAX_INSTANCES = 24;
+export const MAX_PER_TEMPLATE = 6;
+
 interface Run {
   id: string;
+  instance: Instance;
+  template: string;
   depth: number;
   modifier: Modifier;
   stage: number;
@@ -30,23 +44,64 @@ interface Run {
   credit: Map<string, Set<number>>;
   crew: Map<string, { name: string; classId: ClassId }>;
 }
-/** A shared expedition per realm and dimension. Encounter changes are explicit altar actions.
- * Empty expeditions expire; occupied ones can never be reset by another player. */
+/**
+ * Every live dungeon in the realm. A run is one instance: a template plus a seed, opened
+ * either from a permanent Hearth portal or by a door something dropped in the world.
+ *
+ * The instance outlives the portal that opened it. Empty instances expire; occupied ones
+ * are never reset, never evicted, and never taken over by another crew.
+ */
 export class Dungeons {
-  runs = new Map<DungeonId, Run>();
+  runs = new Map<string, Run>();
+  /** The realm's current instance of each template, which its template name is shorthand for. */
+  current = new Map<string, string>();
   cycle = 0;
+  seeds = 0;
   constructor(private realm: Realm) {}
-  occupants(dim: DungeonId) {
-    return [...this.realm.players.values()].filter(
-      (p) => p.profile.character && p.dimension === dim,
-    );
+  /** Everyone standing in one instance. */
+  occupants(dimension: Dimension) {
+    const id = this.resolve(dimension);
+    return id
+      ? [...this.realm.players.values()].filter((p) => p.profile.character && p.dimension === id)
+      : [];
   }
-  reset(dim: DungeonId, depth = 1) {
-    this.clearCombat(dim, true);
+  /** A live instance id for a dimension, whether it was named by id or by template. */
+  resolve(dimension: Dimension): string | undefined {
+    if (dimension === 'wilds') return undefined;
+    if (this.runs.has(dimension)) return dimension;
+    return this.current.get(templateOf(dimension));
+  }
+  run(dimension: Dimension) {
+    const id = this.resolve(dimension);
+    return id ? this.runs.get(id) : undefined;
+  }
+  encounters(template: string) {
+    return EXPEDITIONS[template] ?? EXPEDITIONS.hollow;
+  }
+  /** Open a fresh instance of a template. Story templates replace the realm's current one. */
+  open(template: string, depth = 1, openedBy = 'the Hearth', portalSeconds = 0) {
+    this.evictIdle(template);
+    const seed = (this.realm.rng() * 0xffffffff) >>> 0;
+    const id = instanceId(template, seed ^ ++this.seeds);
     const modifier: Modifier =
-      dim === 'eclipse' ? (['iron', 'swift', 'fervor'] as const)[this.cycle++ % 3] : 'still';
-    this.runs.set(dim, {
-      id: randomUUID(),
+      template === 'eclipse'
+        ? (['iron', 'swift', 'fervor'] as const)[this.cycle++ % 3]
+        : depth > 1
+          ? (['iron', 'swift', 'fervor'] as const)[(this.cycle++ + depth) % 3]
+          : 'still';
+    const instance: Instance = {
+      id,
+      template,
+      seed,
+      depth,
+      modifier,
+      openedBy,
+      expiresAt: portalSeconds ? this.realm.time + portalSeconds : Infinity,
+    };
+    this.runs.set(id, {
+      id,
+      instance,
+      template,
       depth,
       modifier,
       stage: 0,
@@ -57,10 +112,51 @@ export class Dungeons {
       credit: new Map(),
       crew: new Map(),
     });
+    if (STORY_TEMPLATES.includes(template)) this.current.set(template, id);
+    return this.runs.get(id)!;
   }
-  enter(p: Player, dim: DungeonId) {
+  /**
+   * Make room before opening. Only empty instances are ever removed, and the realm's
+   * current story instances are kept even when idle so their Hearth portals always work.
+   */
+  evictIdle(template: string) {
+    const removable = () =>
+      [...this.runs.values()]
+        .filter((r) => !this.occupants(r.id).length && !this.isCurrentStory(r))
+        .sort((a, b) => a.emptySince - b.emptySince);
+    const ofTemplate = () => [...this.runs.values()].filter((r) => r.template === template);
+    while (ofTemplate().length >= MAX_PER_TEMPLATE) {
+      const victim = removable().find((r) => r.template === template);
+      if (!victim) break;
+      this.close(victim);
+    }
+    while (this.runs.size >= MAX_INSTANCES) {
+      const victim = removable()[0];
+      if (!victim) break;
+      this.close(victim);
+    }
+  }
+  isCurrentStory(run: Run) {
+    return this.current.get(run.template) === run.id && STORY_TEMPLATES.includes(run.template);
+  }
+  close(run: Run) {
+    this.clearCombat(run.id, true);
+    this.runs.delete(run.id);
+    if (this.current.get(run.template) === run.id) this.current.delete(run.template);
+  }
+  /** Kept under its original name: reset the realm's current instance of a story template. */
+  reset(template: string, depth = 1) {
+    const existing = this.current.get(template);
+    if (existing) {
+      const run = this.runs.get(existing);
+      if (run) this.close(run);
+    }
+    return this.open(template, depth);
+  }
+  enter(p: Player, target: Dimension) {
+    const template = templateOf(target);
     const legacy = ensureLegacy(p.profile);
-    if (dim === 'eclipse' && (!p.profile.victories || p.profile.character!.level < 20)) {
+    if (template === 'eclipse' && (!p.profile.victories || p.profile.character!.level < 20)) {
       this.realm.notice(
         p,
         'The Elder Convergence requires a Sovereign victory on this account and a level 20 traveler.',
@@ -68,55 +164,98 @@ export class Dungeons {
       );
       return false;
     }
-    const run = this.runs.get(dim);
-    if (!run || (run.status === 'cleared' && !this.occupants(dim).length))
-      this.reset(
-        dim,
-        dim === 'eclipse'
+    let run = this.runs.get(target) ?? this.run(target);
+    if (!run || (run.status === 'cleared' && !this.occupants(run.id).length))
+      run = this.open(
+        template,
+        template === 'eclipse'
           ? Math.min(MAX_DEPTH, legacy.highestDepth + 1, Math.max(1, legacy.selectedDepth))
           : 1,
       );
-    const active = this.runs.get(dim)!;
-    if (dim === 'eclipse' && active.depth > legacy.highestDepth + 1) {
+    if (!this.qualified(p, run)) return false;
+    run.emptySince = this.realm.time;
+    return run;
+  }
+  /** Late arrivals qualify independently, exactly as Elder depths have always required. */
+  qualified(p: Player, run: Run) {
+    if (run.depth <= 1) return true;
+    const legacy = ensureLegacy(p.profile);
+    const best = legacy.bestDepths?.[run.template] ?? 0;
+    if (run.depth > best + 1) {
       this.realm.notice(
         p,
-        `This realm is running depth ${active.depth}. Clear depth ${active.depth - 1} first, or choose another realm.`,
+        `This door is open at depth ${run.depth}. Clear depth ${run.depth - 1} of ${DUNGEONS[run.template]?.name ?? run.template} first.`,
         'bad',
       );
       return false;
     }
-    active.emptySince = this.realm.time;
     return true;
   }
+  /** Every live instance, plus the three story dungeons, which are always available. */
   list(): ExpeditionListing[] {
-    return (Object.keys(DUNGEONS) as DungeonId[]).map((dimension) => {
-      const run = this.runs.get(dimension),
-        occupants = this.occupants(dimension);
-      const fresh = !run || (run.status === 'cleared' && !occupants.length);
-      return {
-        dimension,
+    const listings: ExpeditionListing[] = [];
+    const seen = new Set<string>();
+    for (const run of this.runs.values()) {
+      const occupants = this.occupants(run.id).filter((p) => p.send);
+      const fresh = run.status === 'cleared' && !occupants.length;
+      if (this.isCurrentStory(run)) seen.add(run.template);
+      const portal = this.realm.portals.get(run.id);
+      listings.push({
+        dimension: run.template,
+        instance: run.id,
+        template: run.template,
+        name: DUNGEONS[run.template]?.name ?? run.template,
+        modifier: run.modifier,
         status: fresh ? 'empty' : run.status,
         depth: fresh ? 1 : run.depth,
         stage: fresh ? 1 : run.stage + 1,
+        stages: this.encounters(run.template).length,
         started: !fresh && run.started >= 0,
-        population: occupants.filter((p) => p.send).length,
-        travelers: occupants
-          .filter((p) => p.send)
-          .slice(0, 8)
-          .map((p) => ({
-            name: p.profile.name,
-            classId: p.profile.character!.classId,
-            level: p.profile.character!.level,
-          })),
-      };
-    });
+        population: occupants.length,
+        travelers: occupants.slice(0, 8).map((p) => ({
+          name: p.profile.name,
+          classId: p.profile.character!.classId,
+          level: p.profile.character!.level,
+        })),
+        ...(portal
+          ? {
+              portal: Math.max(0, Math.ceil(portal.expiresAt - this.realm.time)),
+              x: portal.x,
+              z: portal.z,
+              place: portal.place,
+            }
+          : {}),
+        permanent: STORY_TEMPLATES.includes(run.template) && this.isCurrentStory(run),
+      });
+    }
+    for (const template of STORY_TEMPLATES)
+      if (!seen.has(template))
+        listings.push({
+          dimension: template,
+          template,
+          name: DUNGEONS[template]?.name ?? template,
+          status: 'empty',
+          depth: 1,
+          stage: 1,
+          stages: this.encounters(template).length,
+          started: false,
+          population: 0,
+          travelers: [],
+          permanent: true,
+        });
+    // Joinable now first: somebody inside, then open and waiting, then empty.
+    return listings.sort(
+      (a, b) =>
+        b.population - a.population ||
+        Number(b.status !== 'empty') - Number(a.status !== 'empty') ||
+        (a.name ?? '').localeCompare(b.name ?? ''),
+    );
   }
   interact(p: Player) {
     if (p.dimension === 'wilds') return false;
-    const dim = p.dimension,
-      run = this.runs.get(dim);
+    const run = this.run(p.dimension);
     if (!run) return false;
-    const stage = EXPEDITIONS[dim][run.stage];
+    const stage = this.encounters(run.template)[run.stage];
     if (run.status !== 'ready' || distance(p, stage.altar) >= 4) return false;
     if (run.started < 0) run.started = this.realm.time;
     run.status = 'active';
@@ -129,7 +268,7 @@ export class Dungeons {
           pack.kind,
           pack.x + Math.cos(angle) * pack.spread,
           pack.z + Math.sin(angle) * pack.spread,
-          dim,
+          run.id,
         );
         enemy.runId = run.id;
         enemy.healthScale = scale.hp * modifier.hp;
@@ -140,28 +279,29 @@ export class Dungeons {
         enemy.nextFire = this.realm.time + 2.5;
       }
     }
-    for (const ally of this.occupants(dim))
+    for (const ally of this.occupants(run.id))
       this.realm.notice(
         ally,
-        `${run.stage + 1}/${EXPEDITIONS[dim].length} · ${stage.name}`,
+        `${run.stage + 1}/${this.encounters(run.template).length} · ${stage.name}`,
         'info',
       );
     return true;
   }
   killed(enemy: { id: string; dimension: string; runId?: string }, eligible: Player[]) {
     if (!enemy.runId) return;
-    const dim = enemy.dimension as DungeonId,
-      run = this.runs.get(dim);
-    if (!run || run.id !== enemy.runId || run.status !== 'active') return;
+    const run = this.runs.get(enemy.runId);
+    if (!run || run.status !== 'active') return;
     for (const p of eligible) {
       if (!run.credit.has(p.profile.id)) run.credit.set(p.profile.id, new Set());
       run.credit.get(p.profile.id)!.add(run.stage);
       run.crew.set(p.profile.id, { name: p.profile.name, classId: p.profile.character!.classId });
     }
     if ([...this.realm.enemies.values()].some((e) => e.runId === run.id)) return;
-    this.clearCombat(dim);
-    const finished = run.stage === EXPEDITIONS[dim].length - 1;
-    for (const p of this.occupants(dim)) {
+    this.clearCombat(run.id);
+    const encounters = this.encounters(run.template);
+    const finished = run.stage === encounters.length - 1;
+    const template = run.template;
+    for (const p of this.occupants(run.id)) {
       const c = p.profile.character!;
       if (!run.credit.get(p.profile.id)?.has(run.stage)) continue;
       c.hp = Math.min(stats(c).maxHp, c.hp + stats(c).maxHp * 0.2);
@@ -171,35 +311,43 @@ export class Dungeons {
       const result: ExpeditionResult | undefined = finished
         ? {
             id: run.id,
-            dimension: dim,
+            dimension: template,
+            template,
+            instance: run.id,
             depth: run.depth,
             modifier: run.modifier,
             elapsed: Math.max(0, this.realm.time - run.started),
             at: Date.now(),
             chambers: run.credit.get(p.profile.id)!.size,
-            totalChambers: EXPEDITIONS[dim].length,
+            totalChambers: encounters.length,
             shards: 0,
             gold: 0,
             personalBest: false,
             crew: [...run.crew.values()],
           }
         : undefined;
-      if (finished && run.credit.get(p.profile.id)!.size === EXPEDITIONS[dim].length) {
+      if (finished && run.credit.get(p.profile.id)!.size === encounters.length) {
         c.clears ??= [];
-        if (!c.clears.includes(dim)) c.clears.push(dim);
+        if (!c.clears.includes(template)) c.clears.push(template);
         const legacy = ensureLegacy(p.profile);
-        const shards = dim === 'eclipse' ? 8 + run.depth * 2 : dim === 'hollow' ? 3 : 5;
+        const base = template === 'eclipse' ? 8 + run.depth * 2 : template === 'hollow' ? 3 : 5;
+        const shards = template === 'eclipse' ? base : base + (run.depth - 1) * 2;
         legacy.shards += shards;
-        c.gold += dim === 'eclipse' ? run.depth * 50 + 200 : 80;
+        const gold = template === 'eclipse' ? run.depth * 50 + 200 : 80 + (run.depth - 1) * 45;
+        c.gold += gold;
         result!.shards = shards;
-        result!.gold = dim === 'eclipse' ? run.depth * 50 + 200 : 80;
-        if (dim === 'eclipse') {
+        result!.gold = gold;
+        // Depth credit, and a best time, are kept per template now.
+        legacy.bestDepths ??= {};
+        legacy.bestDepths[template] = Math.max(legacy.bestDepths[template] ?? 0, run.depth);
+        const key = `${template}:${run.depth}`,
+          elapsed = this.realm.time - run.started;
+        result!.personalBest = elapsed < (legacy.bestTimes[key] ?? Infinity);
+        legacy.bestTimes[key] = Math.min(legacy.bestTimes[key] ?? Infinity, elapsed);
+        if (template === 'eclipse') {
           legacy.clears++;
           legacy.highestDepth = Math.max(legacy.highestDepth, run.depth);
-          const key = String(run.depth),
-            elapsed = this.realm.time - run.started;
-          result!.personalBest = elapsed < (legacy.bestTimes[key] ?? Infinity);
-          legacy.bestTimes[key] = Math.min(legacy.bestTimes[key] ?? Infinity, elapsed);
+          legacy.bestTimes[String(run.depth)] = legacy.bestTimes[key];
           legacy.selectedDepth = Math.min(MAX_DEPTH, legacy.highestDepth + 1);
           const item = makeItem(
             (['weapon', 'armor', 'charm'] as const)[legacy.clears % 3],
@@ -207,12 +355,12 @@ export class Dungeons {
             'rare',
             this.realm.rng,
           );
-          this.realm.dropItems(p.profile.id, { ...p, dimension: dim }, [item], 180);
+          this.realm.dropItems(p.profile.id, { ...p, dimension: run.id }, [item], 180);
           this.realm.completeJourney(p);
         }
         this.realm.notice(
           p,
-          `${DUNGEONS[dim].name} cleared! +${shards} permanent star shards${dim === 'eclipse' ? ' · Tier 6 Astral cache' : ''}.`,
+          `${DUNGEONS[template]?.name ?? template} cleared${run.depth > 1 ? ` at depth ${run.depth}` : ''}! +${shards} permanent star shards${template === 'eclipse' ? ' · Tier 6 Astral cache' : ''}.`,
           'good',
         );
       } else if (!finished)
@@ -238,34 +386,38 @@ export class Dungeons {
       run.status = 'ready';
     }
   }
-  clearCombat(dim: DungeonId, enemies = false) {
+  clearCombat(dimension: Dimension, enemies = false) {
     for (const [id, b] of this.realm.bullets)
-      if (b.dimension === dim) this.realm.bullets.delete(id);
+      if (b.dimension === dimension) this.realm.bullets.delete(id);
     for (const [id, h] of this.realm.hazards)
-      if (h.dimension === dim) this.realm.hazards.delete(id);
+      if (h.dimension === dimension) this.realm.hazards.delete(id);
     if (enemies)
       for (const [id, e] of this.realm.enemies)
-        if (e.dimension === dim) this.realm.enemies.delete(id);
+        if (e.dimension === dimension) this.realm.enemies.delete(id);
   }
   step() {
-    for (const [dim, run] of this.runs) {
-      if (this.occupants(dim).length) run.emptySince = this.realm.time;
-      else if (this.realm.time - run.emptySince > 60) {
-        this.clearCombat(dim, true);
-        this.runs.delete(dim);
+    for (const [id, run] of this.runs) {
+      if (this.occupants(id).length) {
+        run.emptySince = this.realm.time;
+        continue;
       }
+      // Only empty instances ever expire. Nobody is ever moved out of a live one, and a
+      // story template simply opens a fresh instance the next time someone walks in.
+      if (this.realm.time - run.emptySince > 60) this.close(run);
     }
   }
-  state(dim: DungeonId): DungeonState | undefined {
-    const run = this.runs.get(dim);
+  state(dimension: Dimension): DungeonState | undefined {
+    const run = this.run(dimension);
     if (!run) return;
-    const stage = EXPEDITIONS[dim][run.stage];
+    const encounters = this.encounters(run.template);
+    const stage = encounters[run.stage];
     return {
-      dimension: dim,
+      dimension: run.id,
+      template: run.template,
       depth: run.depth,
       modifier: run.modifier,
       stage: run.stage + 1,
-      stages: EXPEDITIONS[dim].length,
+      stages: encounters.length,
       name: stage.name,
       status: run.status,
       remaining: [...this.realm.enemies.values()].filter((e) => e.runId === run.id).length,

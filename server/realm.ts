@@ -39,6 +39,8 @@ import {
   zoneAt,
 } from '../shared/content.js';
 import { canMove, inBounds, move, random, shortcutAt } from '../shared/world.js';
+import { templateOf } from '../shared/instances.js';
+import { TEMPLATE_BY_ID } from '../shared/templates.js';
 import { BIOMES, ECOLOGY, ECOLOGY_BY_PLACE, type Ecology } from '../shared/biomes.js';
 import { BIOME_PLACES, PLACE_BY_ID, WANDERING_STAR, type BiomeId } from '../shared/places.js';
 import { EVENT_BY_ID, WORLD_EVENTS, type EventState, type WorldEvent } from '../shared/events.js';
@@ -161,6 +163,20 @@ interface Setpiece {
   wave: number;
   nextBeat: number;
 }
+/** A door something dropped, and the instance behind it. The instance outlives the door. */
+export interface Portal {
+  id: string;
+  instance: string;
+  template: string;
+  name: string;
+  x: number;
+  z: number;
+  place: string;
+  color: string;
+  depth: number;
+  expiresAt: number;
+  openedBy: string;
+}
 /** A group of creatures that arrived together and travels together. */
 interface Pack {
   id: string;
@@ -213,6 +229,8 @@ export class Realm {
   lastSave = 0;
   lastBudget = 0;
   packs = new Map<string, Pack>();
+  /** Doors standing open in the world, keyed by the instance each one leads to. */
+  portals = new Map<string, Portal>();
   zoneTargets = new Map<string, number>();
   zoneKills = new Map<string, number>();
   lastRoster = -Infinity;
@@ -700,10 +718,12 @@ export class Realm {
         this.notice(p, 'Recall to the Hearth before joining an expedition.', 'bad');
         return;
       }
-      if (!itemId || !Object.hasOwn(DUNGEONS, itemId)) return;
-      const dim = itemId as DungeonId,
-        run = this.dungeons.runs.get(dim);
-      if (run?.status === 'cleared' && this.dungeons.occupants(dim).length) {
+      // A rally names either a template or a live instance; both resolve to one door.
+      if (!itemId) return;
+      const template = templateOf(itemId);
+      if (!TEMPLATE_BY_ID.has(template)) return;
+      const run = this.dungeons.runs.get(itemId) ?? this.dungeons.run(itemId);
+      if (run?.status === 'cleared' && this.dungeons.occupants(run.id).length) {
         this.notice(
           p,
           'This expedition is cleared. A new run opens after everyone recalls.',
@@ -711,7 +731,7 @@ export class Realm {
         );
         return;
       }
-      this.enterDungeon(p, dim);
+      this.enterDungeon(p, itemId);
       return;
     }
     if (action === 'recall') {
@@ -2017,10 +2037,12 @@ export class Realm {
     }
     this.dungeons.killed(e, eligible);
   }
-  enterDungeon(p: Player, dimension: DungeonId) {
-    if (!this.dungeons.enter(p, dimension)) return false;
+  enterDungeon(p: Player, target: Dimension) {
+    const run = this.dungeons.enter(p, target);
+    if (!run) return false;
+    const template = run.template;
     p.epoch++;
-    p.dimension = dimension;
+    p.dimension = run.id;
     p.x = 0;
     p.z = 22;
     p.input = { ...EMPTY_INPUT };
@@ -2028,8 +2050,12 @@ export class Realm {
     p.dashUntil = 0;
     p.lastInput = this.time;
     p.invulnerableUntil = this.time + 3;
-    this.notice(p, `You entered ${DUNGEONS[dimension].name}. R returns you home.`);
-    this.effect('portal', p, DUNGEONS[dimension].color);
+    const place = TEMPLATE_BY_ID.get(template);
+    this.notice(
+      p,
+      `You entered ${place?.name ?? template}${run.depth > 1 ? ` · depth ${run.depth}` : ''}. R returns you home.`,
+    );
+    this.effect('portal', p, place?.color ?? '#edc48e');
     return true;
   }
   collectRelic(p: Player, kind?: string) {

@@ -299,7 +299,7 @@ test('a prior life or final-boss assist cannot complete the current full Elder c
     for (let stage = 0; stage < 5; stage++) {
       Object.assign(p, realm.dungeons.state('eclipse')!.altar);
       realm.action(p.profile.id, 'delve');
-      for (const enemy of [...realm.enemies.values()].filter((e) => e.dimension === 'eclipse')) {
+      for (const enemy of [...realm.enemies.values()].filter((e) => e.dimension === p.dimension)) {
         Object.assign(p, { x: enemy.x, z: enemy.z });
         realm.killEnemy(enemy, [p]);
       }

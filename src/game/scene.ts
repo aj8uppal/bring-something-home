@@ -36,6 +36,8 @@ import {
   type BiomeId,
 } from '../../shared/places';
 import { BIOMES } from '../../shared/biomes';
+import { templateOf } from '../../shared/instances';
+import { TEMPLATE_BY_ID } from '../../shared/templates';
 import type {
   ClassId,
   Dimension,
@@ -995,7 +997,9 @@ export class WorldView {
     for (const x of [-radius, radius]) box(g, '#afac96', x, 0.3, 0, 0.8, 0.6, 1);
     return g;
   }
-  buildDungeon(dim: Exclude<Dimension, 'wilds'>) {
+  buildDungeon(dimension: Dimension) {
+    const dim = templateOf(dimension);
+    const palette = TEMPLATE_BY_ID.get(dim)?.palette ?? '#8fd8d2';
     disposeObject(this.dungeon);
     this.dungeon.clear();
     const color = dim === 'eclipse' ? '#565775' : dim === 'hollow' ? '#627d7e' : '#8d7769';
@@ -1053,7 +1057,7 @@ export class WorldView {
     for (const x of [-22, 22])
       for (const z of [-22, -10, 2, 14]) {
         put(CYL, '#a9a791', x, 2.5, z, 0.75, 5, 0.75);
-        put(OCT, DUNGEONS[dim].color, x, 5.8, z, 0.35, 0.7, 0.35);
+        put(OCT, palette, x, 5.8, z, 0.35, 0.7, 0.35);
       }
     for (const [geo, entries] of batches) {
       const batch = new THREE.InstancedMesh(geo, material('#ffffff'), entries.length);
@@ -1064,16 +1068,16 @@ export class WorldView {
       batch.receiveShadow = true;
       this.dungeon.add(batch);
     }
-    const portal = this.portal(DUNGEONS[dim].color, 1.6);
+    const portal = this.portal(palette, 1.6);
     portal.position.set(0, 0, 25);
     this.dungeon.add(portal);
     for (const z of [17, 3, -8]) {
-      const chamber = ring(dim === 'eclipse' ? 12 : 9, DUNGEONS[dim].color, 0.025);
+      const chamber = ring(dim === 'eclipse' ? 12 : 9, palette, 0.025);
       chamber.position.set(0, 0.065, z);
       this.dungeon.add(chamber);
       for (const x of [-16, 16]) {
-        const border = box(this.dungeon, DUNGEONS[dim].color, x, 0.055, z, 5, 0.025, 0.12);
-        border.material = material(DUNGEONS[dim].color, 0.2);
+        const border = box(this.dungeon, palette, x, 0.055, z, 5, 0.025, 0.12);
+        border.material = material(palette, 0.2);
       }
     }
     if (dim === 'eclipse') {
@@ -1084,7 +1088,7 @@ export class WorldView {
         this.dungeon.add(crystal);
       }
     }
-    const sigil = ring(6, DUNGEONS[dim].color, 0.08);
+    const sigil = ring(6, palette, 0.08);
     sigil.position.set(0, 0.07, -22);
     this.dungeon.add(sigil);
   }
@@ -1138,13 +1142,14 @@ export class WorldView {
     this.renderer.shadowMap.needsUpdate = true;
     this.resize();
   }
-  switchDimension(dim: Dimension) {
-    if (this.dimension === dim) return;
-    this.dimension = dim;
+  switchDimension(dimension: Dimension) {
+    if (this.dimension === dimension) return;
+    this.dimension = dimension;
+    const dim = templateOf(dimension);
     this.renderer.shadowMap.needsUpdate = true;
     this.world.visible = dim === 'wilds';
     this.dungeon.visible = dim !== 'wilds';
-    if (dim !== 'wilds') this.buildDungeon(dim);
+    if (dim !== 'wilds') this.buildDungeon(dimension);
     this.scene.background = new THREE.Color(
       dim === 'wilds'
         ? '#789696'

@@ -64,6 +64,8 @@ import {
   type MapPin,
 } from './game/map';
 import { placeById, threatOf } from '../shared/places';
+import { templateOf } from '../shared/instances';
+import { templateName } from '../shared/templates';
 import { ISLAND } from '../shared/world';
 import { sound } from './game/audio';
 import * as ui from './ui';
@@ -581,7 +583,7 @@ function renderVitals() {
     if (signature !== dungeonSignature) {
       dungeonSignature = signature;
       $('dungeon-progress').innerHTML =
-        `<span class="eyebrow">${dungeon.dimension === 'eclipse' ? `ELDER DEPTH ${dungeon.depth} · ${modifier?.name ?? ''}` : DUNGEONS[dungeon.dimension].name}</span><strong>${dungeon.status === 'cleared' ? 'Expedition complete' : `${dungeon.stage}/${dungeon.stages} · ${dungeon.name}`}</strong><span>${dungeon.status === 'active' ? `${dungeon.remaining} guardian${dungeon.remaining === 1 ? ' remains' : 's remain'}` : dungeon.next}</span><div class="chamber-pips">${Array.from({ length: dungeon.stages }, (_, i) => `<i class="${i < dungeon.stage - 1 || dungeon.status === 'cleared' ? 'done' : i === dungeon.stage - 1 ? 'current' : ''}"></i>`).join('')}</div>${dungeon.dimension === 'eclipse' ? `<small>${modifier?.description ?? ''} · <span id="dungeon-timer"></span></small>` : ''}${dungeon.status === 'ready' && distance(snapshot.self, dungeon.altar) < 4 ? '<button class="small-button" data-game="delve">Awaken altar</button>' : ''}${dungeon.status === 'cleared' && profile?.lastExpedition ? '<button class="small-button" data-panel="recap">Review expedition</button>' : ''}`;
+        `<span class="eyebrow">${templateOf(dungeon.dimension) === 'eclipse' ? `ELDER DEPTH ${dungeon.depth} · ${modifier?.name ?? ''}` : `${templateName(templateOf(dungeon.dimension))}${dungeon.depth > 1 ? ` · DEPTH ${dungeon.depth}` : ''}`}</span><strong>${dungeon.status === 'cleared' ? 'Expedition complete' : `${dungeon.stage}/${dungeon.stages} · ${dungeon.name}`}</strong><span>${dungeon.status === 'active' ? `${dungeon.remaining} guardian${dungeon.remaining === 1 ? ' remains' : 's remain'}` : dungeon.next}</span><div class="chamber-pips">${Array.from({ length: dungeon.stages }, (_, i) => `<i class="${i < dungeon.stage - 1 || dungeon.status === 'cleared' ? 'done' : i === dungeon.stage - 1 ? 'current' : ''}"></i>`).join('')}</div>${dungeon.depth > 1 || templateOf(dungeon.dimension) === 'eclipse' ? `<small>${modifier?.description ?? ''} · <span id="dungeon-timer"></span></small>` : ''}${dungeon.status === 'ready' && distance(snapshot.self, dungeon.altar) < 4 ? '<button class="small-button" data-game="delve">Awaken altar</button>' : ''}${dungeon.status === 'cleared' && profile?.lastExpedition ? '<button class="small-button" data-panel="recap">Review expedition</button>' : ''}`;
     }
     if ($('dungeon-timer'))
       text(

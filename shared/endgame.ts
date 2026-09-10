@@ -47,11 +47,21 @@ export function legacyOf(p: Profile) {
       bossKills: {},
       relics: [],
       bestTimes: {},
+      bestDepths: {},
     }
   );
 }
 export function ensureLegacy(p: Profile) {
-  return (p.legacy ??= legacyOf(p));
+  const legacy = (p.legacy ??= legacyOf(p));
+  // Migration, in place and without a schema change: best times used to be keyed by the bare
+  // Elder depth, and depth credit lived in `highestDepth` alone. Both are per template now.
+  legacy.bestDepths ??= {};
+  if (legacy.highestDepth && !legacy.bestDepths.eclipse)
+    legacy.bestDepths.eclipse = legacy.highestDepth;
+  for (const [key, value] of Object.entries(legacy.bestTimes))
+    if (/^\d+$/.test(key) && legacy.bestTimes[`eclipse:${key}`] === undefined)
+      legacy.bestTimes[`eclipse:${key}`] = value;
+  return legacy;
 }
 export function depthScaling(depth: number) {
   const d = Math.max(1, Math.min(MAX_DEPTH, depth)) - 1;

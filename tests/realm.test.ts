@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { Store } from '../server/database.js';
 import { BUDGET_INTERVAL, Realm } from '../server/realm.js';
 import { ECOLOGY } from '../shared/biomes.js';
+import { templateOf } from '../shared/instances.js';
 import { WORLD_EVENTS } from '../shared/events.js';
 import { createCharacter, grantXp, makeItem, stats } from '../server/model.js';
 import {
@@ -300,7 +301,7 @@ test('both portals enter distinct shared dungeons and recall always returns home
     p.x = DUNGEONS[dim].x;
     p.z = DUNGEONS[dim].z;
     realm.action(p.profile.id, 'interact');
-    assert.equal(p.dimension, dim);
+    assert.equal(templateOf(p.dimension), dim);
     assert.equal(p.z, 22);
     c.potions = 0;
     realm.action(p.profile.id, 'recall');

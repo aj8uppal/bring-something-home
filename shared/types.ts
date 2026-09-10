@@ -1,6 +1,23 @@
 export type ClassId = 'arcanist' | 'ranger' | 'sentinel';
-export type Dimension = 'wilds' | 'hollow' | 'crucible' | 'eclipse';
-export type DungeonId = Exclude<Dimension, 'wilds'>;
+/**
+ * Where a traveler is. `'wilds'` is the one shared overworld; anything else is the id of a
+ * live dungeon instance, shaped `template:seed`. The three story dungeons keep their
+ * template names as shorthand for the realm's current instance of each.
+ */
+export type Dimension = string;
+/** A dungeon template: the three story dungeons, plus every drop-only door. */
+export type DungeonId = string;
+/** One live dungeon. Its layout is generated from the seed, identically for everyone. */
+export interface Instance {
+  id: string;
+  template: string;
+  seed: number;
+  depth: number;
+  modifier: string;
+  /** Who opened the door, and when the door itself closes. The run outlives the portal. */
+  openedBy: string;
+  expiresAt: number;
+}
 export type Slot = 'weapon' | 'armor' | 'charm';
 export type Rarity = 'common' | 'uncommon' | 'rare' | 'relic';
 export interface Vec {
@@ -72,12 +89,18 @@ export interface Profile {
     clears: number;
     bossKills: Record<string, number>;
     relics: string[];
+    /** Keyed `template:depth`. Older saves keyed Elder depths by the bare depth number. */
     bestTimes: Record<string, number>;
+    /** Deepest clear per template, which is what a depth dial is gated on. */
+    bestDepths?: Record<string, number>;
   };
 }
 export interface ExpeditionResult {
   id: string;
+  /** The template, which is also what older saves stored here. */
   dimension: DungeonId;
+  template?: string;
+  instance?: string;
   depth: number;
   modifier: string;
   elapsed: number;
@@ -90,16 +113,32 @@ export interface ExpeditionResult {
   crew: { name: string; classId: ClassId }[];
 }
 export interface ExpeditionListing {
+  /** The template, so existing callers and invitations keep working. */
   dimension: DungeonId;
+  /** The live instance this listing describes, when one exists. */
+  instance?: string;
+  template?: string;
+  name?: string;
+  modifier?: string;
   status: 'empty' | DungeonState['status'];
   depth: number;
   stage: number;
+  stages?: number;
   started: boolean;
   population: number;
   travelers: { name: string; classId: ClassId; level: number }[];
+  /** Seconds left on the portal that opened this instance, if it was a dropped one. */
+  portal?: number;
+  /** Where the portal stands in the world, for the atlas. */
+  x?: number;
+  z?: number;
+  place?: string;
+  /** True for the three story dungeons, which are always available at the Hearth. */
+  permanent?: boolean;
 }
 export interface DungeonState {
-  dimension: DungeonId;
+  dimension: Dimension;
+  template?: string;
   depth: number;
   modifier: string;
   stage: number;
