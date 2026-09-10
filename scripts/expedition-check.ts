@@ -5,6 +5,13 @@ import { Realm } from '../server/realm.js';
 import { makeItem, stats } from '../server/model.js';
 import { CLASSES, DUNGEONS, ENEMIES, distance } from '../shared/content.js';
 import { canMove, inBounds } from '../shared/world.js';
+/** A creature with a shielded front, if that is what this target is. */
+function shieldedFront(target: { x: number; z: number }) {
+  const maybe = target as { kind?: unknown; angle?: unknown; x: number; z: number };
+  if (typeof maybe.kind !== 'string' || typeof maybe.angle !== 'number') return undefined;
+  const guard = ENEMIES[maybe.kind]?.guard;
+  return guard ? { x: maybe.x, z: maybe.z, angle: maybe.angle, guard } : undefined;
+}
 /** Whether a shot fired at this target would actually reach it, or stop at a wall. */
 function canSee(from: { x: number; z: number }, to: { x: number; z: number }, dim: string) {
   const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
@@ -130,7 +137,7 @@ for (const cls of ['arcanist', 'ranger', 'sentinel'] as ClassId[]) {
         dx = p.x - target.x,
         dz = p.z - target.z,
         d = Math.hypot(dx, dz) || 1;
-      const guarded = 'kind' in target ? ENEMIES[(target as { kind: string }).kind]?.guard : 0;
+      const guarded = shieldedFront(target)?.guard ?? 0;
       const desired =
         !arrived || state.status === 'ready'
           ? 0
@@ -147,14 +154,12 @@ for (const cls of ['arcanist', 'ranger', 'sentinel'] as ClassId[]) {
         let score = Math.abs(Math.hypot(dx + x * step, dz + z * step) - desired) * 0.2;
         if (arrived && state.status === 'active') score -= ((x * -dz) / d + (z * dx) / d) * 0.2;
         // A bulwark's front turns shots aside, so the bot has to walk around it like anyone else.
-        const guard =
-          'kind' in target ? ENEMIES[(target as { kind: string }).kind]?.guard : undefined;
-        if (guard) {
+        const shielded = shieldedFront(target);
+        if (shielded) {
           const facing =
-            Math.atan2(p.z + z * step - target.z, p.x + x * step - target.x) -
-            (target as { angle: number }).angle;
+            Math.atan2(p.z + z * step - shielded.z, p.x + x * step - shielded.x) - shielded.angle;
           const off = Math.abs(Math.atan2(Math.sin(facing), Math.cos(facing)));
-          if (off < guard + 0.2) score += 8;
+          if (off < shielded.guard + 0.2) score += 8;
         }
         // Generated rooms are any shape; the bot looks one step ahead, not six, so a
         // corridor does not read as a dead end in every direction at once.

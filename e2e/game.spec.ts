@@ -322,9 +322,9 @@ test('local movement responds before inputs delayed by 250ms reach the server', 
       send(data: string | ArrayBufferLike | Blob | ArrayBufferView) {
         if (typeof data === 'string' && JSON.parse(data).type === 'input') {
           setTimeout(() => {
-            if (this.readyState === NativeSocket.OPEN) super.send(data);
+            if (this.readyState === NativeSocket.OPEN) super.send(data as string);
           }, 250);
-        } else super.send(data);
+        } else super.send(data as string);
       }
     };
   });

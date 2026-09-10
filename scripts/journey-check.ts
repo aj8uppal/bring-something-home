@@ -5,8 +5,20 @@ import { Store } from '../server/database.js';
 import { Realm } from '../server/realm.js';
 import { stats } from '../server/model.js';
 import { CLASSES, ENEMIES, distance } from '../shared/content.js';
-import { flowTo, layoutFor, roomAt, type Flow } from '../shared/layout.js';
+import { layoutFor, roomAt } from '../shared/layout.js';
 import { canMove, pathThrough } from '../shared/world.js';
+import { bagItems } from '../shared/loot.js';
+import { compareGear } from '../shared/gear.js';
+import { journeyGoal, journeyTarget } from '../shared/progression.js';
+import type { ClassId, Dimension, Snapshot, Vec } from '../shared/types.js';
+
+/** A creature with a shielded front, if that is what this target is. */
+function shieldedFront(target: { x: number; z: number }) {
+  const maybe = target as { kind?: unknown; angle?: unknown; x: number; z: number };
+  if (typeof maybe.kind !== 'string' || typeof maybe.angle !== 'number') return undefined;
+  const guard = ENEMIES[maybe.kind]?.guard;
+  return guard ? { x: maybe.x, z: maybe.z, angle: maybe.angle, guard } : undefined;
+}
 /** Whether a shot fired at this target would actually reach it, or stop at a wall. */
 function canSee(from: Vec, to: Vec, dim: Dimension) {
   const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
@@ -17,75 +29,8 @@ function canSee(from: Vec, to: Vec, dim: Dimension) {
       return false;
   return true;
 }
-import { bagItems } from '../shared/loot.js';
-import { compareGear } from '../shared/gear.js';
-import { journeyGoal, journeyTarget } from '../shared/progression.js';
-import type { ClassId, Dimension, Snapshot, Vec } from '../shared/types.js';
-
 // Navigation belongs to this test pilot, never to the player's movement controls.
 const route = (from: Vec, to: Vec, dim: Dimension) => pathThrough(from, to, dim, 11000);
-/** Whether a shot fired at this target would actually reach it, or stop at a wall. */
-function canSee(from: Vec, to: Vec, dim: Dimension) {
-  const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
-  for (let i = 1; i <= steps; i++)
-    if (
-      !canMove(from.x + ((to.x - from.x) * i) / steps, from.z + ((to.z - from.z) * i) / steps, dim)
-    )
-      return false;
-  return true;
-}
-import { bagItems } from '../shared/loot.js';
-import { compareGear } from '../shared/gear.js';
-import { journeyGoal, journeyTarget } from '../shared/progression.js';
-import type { ClassId, Dimension, Snapshot, Vec } from '../shared/types.js';
-
-// Navigation belongs to this test pilot, never to the player's movement controls.
-function route(from: Vec, to: Vec, dim: Dimension): Vec[] {
-  const size = 2,
-    key = (x: number, z: number) => `${x},${z}`;
-  const start = { x: Math.round(from.x / size), z: Math.round(from.z / size) };
-  const end = { x: Math.round(to.x / size), z: Math.round(to.z / size) };
-  const open = [{ ...start, g: 0, f: 0 }],
-    seen = new Set<string>();
-  const parent = new Map<string, string>(),
-    costs = new Map([[key(start.x, start.z), 0]]);
-  while (open.length && seen.size < 11000) {
-    open.sort((a, b) => b.f - a.f);
-    const n = open.pop()!,
-      id = key(n.x, n.z);
-    if (seen.has(id)) continue;
-    if (Math.hypot(n.x - end.x, n.z - end.z) < 1.5) {
-      const path: Vec[] = [{ ...to }];
-      let id: string | undefined = key(n.x, n.z);
-      while (id) {
-        const [x, z] = id.split(',').map(Number);
-        path.unshift({ x: x * size, z: z * size });
-        id = parent.get(id);
-      }
-      return path.slice(1);
-    }
-    seen.add(id);
-    for (let x = -1; x <= 1; x++)
-      for (let z = -1; z <= 1; z++) {
-        if (!x && !z) continue;
-        const nx = n.x + x,
-          nz = n.z + z,
-          next = key(nx, nz),
-          g = n.g + Math.hypot(x, z);
-        if (seen.has(next) || g >= (costs.get(next) ?? Infinity)) continue;
-        if (
-          ![0.25, 0.5, 0.75, 1].every((t) =>
-            canMove((n.x + x * t) * size, (n.z + z * t) * size, dim),
-          )
-        )
-          continue;
-        costs.set(next, g);
-        parent.set(next, id);
-        open.push({ x: nx, z: nz, g, f: g + Math.hypot(nx - end.x, nz - end.z) });
-      }
-  }
-  return [to];
-}
 
 const results = [];
 for (const cls of (process.env.JOURNEY_CLASS
@@ -98,7 +43,6 @@ for (const cls of (process.env.JOURNEY_CLASS
   // The first arc must be walked in order: gate, bag, wear, clear, grove, warden.
   const steps: { id: string; seconds: number }[] = [];
   let weaponAt: number | undefined;
-  let flow: Flow | undefined;
   let seq = 0,
     path: Vec[] = [],
     pathKey = '',
@@ -151,7 +95,8 @@ for (const cls of (process.env.JOURNEY_CLASS
           distance(a, p) - distance(b, p),
       )[0];
       const relevant = goal.enemy && snapshot.enemies.find((e) => e.kind === goal.enemy);
-      let fight = relevant && distance(relevant, p) < CLASSES[cls].range ? relevant : enemy;
+      let fight: Snapshot['enemies'][number] | undefined =
+        relevant && distance(relevant, p) < CLASSES[cls].range ? relevant : enemy;
       if (self.safe && c.hp < s.maxHp * 0.97) {
         target = p;
         fight = undefined;
@@ -181,7 +126,7 @@ for (const cls of (process.env.JOURNEY_CLASS
         continue;
       } else if (self.safe) action = 'interact';
       else if (relevant || (goal.enemy === 'cinderling' && enemy?.kind === 'thornling')) {
-        target = relevant ?? enemy!;
+        target = relevant || enemy!;
         desired = Math.min(15, CLASSES[cls].range * 0.7);
       }
       if (action && distance(p, target) < 3.4) {
@@ -197,21 +142,15 @@ for (const cls of (process.env.JOURNEY_CLASS
       // Close is not the same as reachable: a wall between you and it means walking.
       const direct = distance(p, target) < desired + 3 && canSee(p, target, p.dimension);
       const routeKey = `${p.dimension}:${Math.round(target.x / 3)},${Math.round(target.z / 3)}`;
-      // Instances are rooms and corridors, so inside one the pilot walks a flow field flooded
-      // out from the target. The open island keeps the A* it has always used.
-      const layout = p.dimension === 'wilds' ? undefined : layoutFor(p.dimension);
-      if (!direct && layout) {
-        if (routeKey !== pathKey) {
-          flow = flowTo(layout, target);
-          pathKey = routeKey;
-        }
-      } else if (!direct && (routeKey !== pathKey || realm.time > nextPath)) {
+      // One way of getting anywhere: plan on the same collision grid the server uses, then
+      // follow the corners. Instances are rooms and corridors; the island is a thicket.
+      if (!direct && (routeKey !== pathKey || realm.time > nextPath)) {
         path = route(p, target, p.dimension);
         pathKey = routeKey;
         nextPath = realm.time + 3;
       }
-      while (!layout && path.length > 1 && distance(p, path[0]) < 1.8) path.shift();
-      const waypoint = direct ? target : layout && flow ? flow.step(p) : (path[0] ?? target),
+      while (path.length > 1 && distance(p, path[0]) < 1.8) path.shift();
+      const waypoint = direct ? target : (path[0] ?? target),
         range = direct ? desired : 0;
       const dx = p.x - waypoint.x,
         dz = p.z - waypoint.z,
@@ -227,13 +166,12 @@ for (const cls of (process.env.JOURNEY_CLASS
         let score = Math.abs(Math.hypot(dx + x * stride, dz + z * stride) - range) * 0.35;
         if (range) score -= ((x * -dz) / d + (z * dx) / d) * 0.2;
         // A shielded front turns shots aside: walk around it rather than into it.
-        const guard = 'kind' in waypoint ? ENEMIES[(waypoint as { kind: string }).kind]?.guard : 0;
-        if (guard) {
+        const shielded = shieldedFront(waypoint);
+        if (shielded) {
+          const guard = shielded.guard;
           const facing =
-            Math.atan2(
-              p.z + z * stride - (waypoint as Vec).z,
-              p.x + x * stride - (waypoint as Vec).x,
-            ) - (waypoint as { angle: number }).angle;
+            Math.atan2(p.z + z * stride - shielded.z, p.x + x * stride - shielded.x) -
+            shielded.angle;
           const off = Math.abs(Math.atan2(Math.sin(facing), Math.cos(facing)));
           if (off < guard + 0.2) score += 8;
         }

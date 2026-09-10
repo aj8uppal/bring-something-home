@@ -257,6 +257,10 @@ LOAD_INSTANCES=1 LOAD_PLAYERS=24 npm run test:load   # fills the instance cap
 CAPTURES=1 npx playwright test e2e/captures.spec.ts  # playtest images, frame time
 ```
 
+`npm run typecheck` covers the client, the server, and the checks themselves:
+`tsconfig.checks.json` type-checks `scripts`, `tests` and `e2e`, which were previously
+outside every project and could drift.
+
 Browser tests use installed Google Chrome on macOS, or Playwright Chromium
 elsewhere (`npx playwright install chromium`). The local Chrome suite uses native
 GPU rendering; `npm run test:e2e:software` explicitly selects SwiftShader. Gameplay

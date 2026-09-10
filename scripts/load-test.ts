@@ -110,8 +110,9 @@ try {
         lastSnapshot = 0;
       ws.on('error', () => errors++);
       ws.on('message', (raw) => {
-        bytes += raw.length;
-        const wire = JSON.parse(String(raw));
+        const text = String(raw);
+        bytes += text.length;
+        const wire = JSON.parse(text);
         const m = wire.type === 'frame' ? decoder.decode(wire) : wire;
         if (m.type === 'welcome') welcomes++;
         if (m.type === 'error') errors++;

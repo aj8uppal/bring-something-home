@@ -459,7 +459,7 @@ test('a pin persists on the profile, survives a reconnect, and only accepts a bo
     realm.action(p.profile.id, 'pin', '');
     assert.equal(p.profile.pinned, undefined);
     realm.action(p.profile.id, 'pin', 'x'.repeat(200));
-    assert.equal(p.profile.pinned!.length, 64, 'a forged id cannot grow the profile');
+    assert.equal(String(p.profile.pinned).length, 64, 'a forged id cannot grow the profile');
   } finally {
     store.close();
   }

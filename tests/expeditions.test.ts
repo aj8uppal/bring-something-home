@@ -240,7 +240,12 @@ test('stacked loot picks the displayed id, respects ownership, and defaults to t
 });
 test('floor attacks are locked, telegraphed, hit once, respect dodges, and vanish when their owner dies', () => {
   const { realm, p, c, store } = setup();
-  p.dimension = realm.dungeons.enter(p, 'eclipse')!.id;
+  c.level = 20;
+  p.profile.victories = 1;
+  const opened = realm.dungeons.enter(p, 'eclipse');
+  assert.ok(opened, 'the Elder portal opens for a qualified traveler');
+  p.dimension = opened.id;
+  p.x = 0;
   p.z = 0;
   p.invulnerableUntil = 0;
   const boss = realm.spawn('tideelder', 0, -12, p.dimension);

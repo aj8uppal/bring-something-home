@@ -72,15 +72,15 @@ packs, every place to take again. Graves stand where travelers fell.
 
 ### Automated checks on this revision
 
-| Check                      | Result                                                                              |
-| -------------------------- | ----------------------------------------------------------------------------------- |
-| `npm run typecheck`        | clean                                                                               |
-| `npm test`                 | 111 unit tests pass (106 before)                                                    |
-| `npm run test:e2e`         | 32 native Chrome scenarios pass                                                     |
-| `npm run test:journey`     | all three callings complete chapter 8: arcanist 635 s, ranger 441 s, sentinel 853 s |
-| `npm run test:balance`     | 66 solo boss encounters cleared, 66/66, plus a head-to-head build comparison        |
-| `npm run test:expeditions` | 33 runs cleared, 33/33, across nine templates and depths 1, 3, 5 and 12             |
-| `npm run test:depth`       | 32 depth samples correct                                                            |
+| Check                      | Result                                                                             |
+| -------------------------- | ---------------------------------------------------------------------------------- |
+| `npm run typecheck`        | clean, and now also covers `scripts`, `tests` and `e2e`                            |
+| `npm test`                 | 118 unit tests pass (106 before)                                                   |
+| `npm run test:e2e`         | 32 native Chrome scenarios pass                                                    |
+| `npm run test:journey`     | all three complete chapter 8 at level 29: 649 s, 447 s, 754 s; weapon in 3.9–4.3 s |
+| `npm run test:balance`     | 66 solo boss encounters cleared, 66/66, plus a head-to-head build comparison       |
+| `npm run test:expeditions` | 33 runs cleared, 33/33, across nine templates and depths 1, 3, 5 and 12            |
+| `npm run test:depth`       | 32 depth samples correct                                                           |
 
 `test:balance` grew from 27 encounters to 66: every biome keeper and every drop-door keeper
 at its recommended band, on a real keeper's stage in a generated instance. It also runs two
@@ -101,26 +101,28 @@ not a starved place.
 
 | Place                      | Tick work | p95 snapshot | Peak shots | Mean population (base 11/14) | Longest deficit |
 | -------------------------- | --------- | ------------ | ---------- | ---------------------------- | --------------- |
-| Cindermeadow               | 2.73 ms   | 108 ms       | 122        | 10.8                         | 1 s             |
-| The Drowned Coast          | 1.58 ms   | 107 ms       | 312        | 26.2                         | 0 s             |
-| The Petrified Orchard      | 0.41 ms   | 106 ms       | 115        | 30.9                         | 0 s             |
-| The Salt Flat              | 0.37 ms   | 106 ms       | 163        | 26.7                         | 1 s             |
-| The Shattered Observatory  | 0.63 ms   | 106 ms       | 323        | 26.4                         | 0 s             |
-| The Bone Marsh             | 0.60 ms   | 109 ms       | 208        | 18.8                         | 0 s             |
-| The Glacier of Fused Glass | 0.75 ms   | 107 ms       | 413        | 28.2                         | 0 s             |
-| The Ashfall                | 1.67 ms   | 108 ms       | 611        | 18.5                         | 3 s             |
+| Cindermeadow               | 0.99 ms   | 109 ms       | 113        | 13.2                         | 2 s             |
+| The Drowned Coast          | 0.68 ms   | 109 ms       | 300        | 27.1                         | 0 s             |
+| The Petrified Orchard      | 0.49 ms   | 109 ms       | 87         | 23.3                         | 0 s             |
+| The Salt Flat              | 0.41 ms   | 109 ms       | 173        | 22.8                         | 2 s             |
+| The Shattered Observatory  | 0.51 ms   | 109 ms       | 324        | 24.4                         | 1 s             |
+| The Bone Marsh             | 0.72 ms   | 109 ms       | 1,001      | 20.2                         | 3 s             |
+| The Glacier of Fused Glass | 0.69 ms   | 109 ms       | 326        | 22.5                         | 0 s             |
+| The Ashfall                | 0.80 ms   | 109 ms       | 676        | 21.2                         | 0 s             |
 
 Today's recorded baseline was 1.73 ms of tick work with twenty clients in Cindermeadow; the
-outer ring sits in the same order of magnitude and mostly below it.
+outer ring sits below it, and no place anywhere sat under its base population for longer
+than three seconds against the five-second rule.
 
 Forty-eight clients in the open wilds with the whole outer ring populated: **p95 snapshot
-interval 109 ms**, 2.88 ms of tick work, **peak 793 visible projectiles**, peak 51 visible
-creatures, 237.7 MB aggregate over twenty seconds, zero errors. The 48-unit visibility filter
-and friendly-shot collision both go through a bucket grid now; without it this is the
-quadratic that breaks first.
+interval 109 ms**, 3.49 ms of tick work, **peak 807 visible projectiles**, peak 49 visible
+creatures, 247.1 MB aggregate over twenty seconds, zero errors. Forty-eight clients running
+the Elder Convergence together: 0.57 ms of tick work, p95 109 ms, zero errors. The 48-unit
+visibility filter and friendly-shot collision both go through a bucket grid now; without it
+this is the quadratic that breaks first.
 
 Twenty-four clients opening doors until the cap is full: **24 live instances** — the
-per-realm ceiling — with **0.36 ms of tick work and 23.7 MB of server heap**. `/api/health`
+per-realm ceiling — with **0.52 ms of tick work and 38.7 MB of server heap**. `/api/health`
 reports live instances, open doors, creature count and heap.
 
 ### Frame time and captures
