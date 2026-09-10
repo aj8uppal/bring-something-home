@@ -14,7 +14,7 @@ import {
   journeyTarget,
   primaryGoal,
 } from '../shared/progression.js';
-import { PLACES, placeAt, threatOf, threatOfTier, WILDS } from '../shared/places.js';
+import { BIOME_PLACES, PLACES, placeAt, threatOf, threatOfTier, WILDS } from '../shared/places.js';
 import { ensureLegacy } from '../shared/endgame.js';
 import { DUNGEONS, ENEMIES, GATE_SPAWNS, ZONES, distance, xpForLevel } from '../shared/content.js';
 import { COMBAT_CLEARINGS, PROPS } from '../shared/world.js';
@@ -314,24 +314,36 @@ test('a prior life or final-boss assist cannot complete the current full Elder c
 
 test('the place table is the single source for zones, regions, dungeons, and lookups', () => {
   // Derived views must keep the order and identity every existing caller depends on.
+  // The island's five places keep their identity and order; the outer ring follows them.
   assert.deepEqual(
-    ZONES.map((z) => z.id),
+    ZONES.slice(0, 5).map((z) => z.id),
     ['haven', 'meadow', 'grove', 'glass', 'crown'],
+  );
+  assert.deepEqual(
+    ZONES.slice(5).map((z) => z.id),
+    ['coast', 'orchard', 'saltflat', 'observatory', 'marsh', 'glacier', 'ashfall'],
   );
   assert.equal(ZONES[1].id, 'meadow', 'zoneAt falls back to ZONES[1]');
   assert.deepEqual(
-    REGIONS.map((r) => r.id),
+    REGIONS.slice(0, 4).map((r) => r.id),
     ['meadow', 'grove', 'glass', 'crown'],
   );
+  assert.equal(REGIONS.length, 11, 'four island regions and seven outer biomes');
   assert.equal(REGIONS[1].name, 'Hollow Grove', 'the first-grove step reads REGIONS[1]');
-  for (const [i, region] of REGIONS.entries()) assert.equal(region.tier, i + 1);
+  for (const [i, region] of REGIONS.slice(0, 4).entries()) assert.equal(region.tier, i + 1);
   assert.deepEqual(Object.keys(DUNGEONS), ['eclipse', 'hollow', 'crucible']);
   assert.equal(DUNGEONS.hollow.level, 5);
   // Lookups resolve through the table, including dungeon dimensions.
   assert.equal(placeAt(0, 20).id, 'haven');
   assert.equal(placeAt(0, -10).id, 'meadow');
   assert.equal(placeAt(0, 0, 'hollow').id, 'hollow');
-  assert.equal(placeAt(999, 999).id, 'meadow', 'off-map falls back to the first wild');
+  assert.equal(placeAt(0, -120).id, 'ashfall', 'the ring beyond the island is tiled by biome');
+  assert.equal(placeAt(-50, 96).id, 'coast');
+  assert.equal(
+    BIOME_PLACES.some((b) => b.id === placeAt(999, 999).id),
+    true,
+    'off-map resolves to the biome whose sector it falls in',
+  );
   // Every wild carries the counterplay line the atlas and plates show.
   for (const place of WILDS) {
     assert.ok(place.lesson, `${place.id} lesson`);

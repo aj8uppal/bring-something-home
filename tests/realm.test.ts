@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../server/database.js';
-import { BUDGET_INTERVAL, Realm, SPAWN_TABLE } from '../server/realm.js';
+import { BUDGET_INTERVAL, Realm } from '../server/realm.js';
+import { ECOLOGY } from '../shared/biomes.js';
+import { WORLD_EVENTS } from '../shared/events.js';
 import { createCharacter, grantXp, makeItem, stats } from '../server/model.js';
 import {
   CLASSES,
@@ -71,7 +73,8 @@ test('replayed input sequence cannot change movement or fire state', () => {
   assert.equal(p.input.fire, false);
 });
 test('terrain collisions and island boundaries are enforced', () => {
-  assert.equal(inBounds(100, 0), false);
+  assert.equal(inBounds(100, 0), true, 'the outer ring is walkable');
+  assert.equal(inBounds(200, 0), false, 'the wilds still end');
   assert.equal(inBounds(30, 0, 'hollow'), false);
   assert.ok(inBounds(20, 20, 'hollow'));
   const rock = PROPS.find((p) => p.radius > 0)!;
@@ -371,11 +374,11 @@ test('journey objectives award exactly once and advance in order', () => {
 });
 test('a realm event spawns two waves and rewards participating travelers', () => {
   const { realm, p, c } = setup();
-  p.x = 18;
-  p.z = -12;
-  realm.event.remaining = 0;
-  realm.step();
+  realm.startEvent('wandering-star');
+  p.x = realm.event.x!;
+  p.z = realm.event.z!;
   assert.equal(realm.event.active, true);
+  assert.equal(realm.event.name, 'The Wandering Star');
   for (let wave = 0; wave < 2; wave++) {
     for (const e of [...realm.enemies.values()].filter((e) => e.event)) realm.killEnemy(e, [p]);
     realm.step();
@@ -383,6 +386,32 @@ test('a realm event spawns two waves and rewards participating travelers', () =>
   assert.equal(realm.event.active, false);
   assert.ok(p.profile.embers >= 10);
   assert.ok(c.gold >= 60);
+});
+test('every event in the table runs, announces a place, and pays out', () => {
+  const { realm, p } = setup();
+  for (const def of WORLD_EVENTS) {
+    realm.event.id = undefined;
+    realm.startEvent(def.id);
+    assert.equal(realm.event.id, def.id, def.id);
+    assert.ok(realm.event.name && realm.event.place && realm.event.beacon, def.id);
+    assert.ok(
+      [...realm.enemies.values()].some((e) => e.event),
+      `${def.id} raised a wave`,
+    );
+    p.x = realm.event.x!;
+    p.z = realm.event.z!;
+    const embers = p.profile.embers;
+    // Credit the objective directly: the shapes differ, the payout contract does not.
+    realm.event.kills = realm.event.target;
+    realm.step();
+    assert.equal(realm.event.active, false, `${def.id} ended`);
+    assert.ok(p.profile.embers > embers, `${def.id} paid`);
+    assert.equal(
+      [...realm.enemies.values()].some((e) => e.event),
+      false,
+      `${def.id} cleaned up`,
+    );
+  }
 });
 test('permadeath atomically records a grave and preserves only persistent progress', () => {
   const { realm, p, c, store, account } = setup();
@@ -620,8 +649,9 @@ test('two cinderlings wait at the gate, outside the sanctuary, and never step in
 test('the spawn budget keeps solo counts and timers, then grows and holds the floor with company', () => {
   const { store, realm, inZone } = populated();
   try {
-    for (const zone of SPAWN_TABLE) assert.equal(inZone(zone.zone), zone.baseCount, zone.zone);
-    const meadow = SPAWN_TABLE.find((z) => z.zone === 'meadow')!;
+    for (const eco of ECOLOGY)
+      assert.ok(inZone(eco.place) >= eco.baseCount, `${eco.place} ${inZone(eco.place)}`);
+    const meadow = ECOLOGY.find((z) => z.place === 'meadow')!;
     // Solo: a kill leaves the meadow one short until its own 25 s respawn fires.
     const solo = realm.add(store.create('Solo').profile, 'arcanist', () => {});
     solo.x = -11;

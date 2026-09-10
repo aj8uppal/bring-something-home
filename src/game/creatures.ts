@@ -143,12 +143,529 @@ function crown(s: Sculpt, color: string, y: number, radius: number, count = 5) {
     );
   }
 }
+/**
+ * The outer ring's roster, as forms rather than one hand-written block each. Every entry
+ * is a silhouette you can name at a glance — a prowler is low and forward, a strider is
+ * all legs, a monolith does not move — and the numbers below make each kind its own.
+ */
+type Form = 'prowler' | 'drifter' | 'strider' | 'bulwark' | 'bloom' | 'orb' | 'monolith' | 'titan';
+interface Shape {
+  form: Form;
+  core: string;
+  accent: string;
+  dark: string;
+  size: number;
+  /** Limb pairs, crown points, or ring count, depending on the form. */
+  count?: number;
+  wings?: boolean;
+  horns?: boolean;
+}
+const SHAPES: Record<string, Shape> = {
+  brineclaw: {
+    form: 'prowler',
+    core: '#7fbfc0',
+    accent: '#cdece8',
+    dark: '#37585e',
+    size: 1,
+    count: 2,
+    horns: true,
+  },
+  glasshound: {
+    form: 'prowler',
+    core: '#b6dde5',
+    accent: '#e7f7fa',
+    dark: '#4a6b74',
+    size: 1.1,
+    count: 2,
+  },
+  bogfiend: {
+    form: 'prowler',
+    core: '#7d9273',
+    accent: '#c6d9a8',
+    dark: '#33422f',
+    size: 1.15,
+    count: 3,
+    horns: true,
+  },
+  voidmoth: {
+    form: 'drifter',
+    core: '#8d93bb',
+    accent: '#ded9f4',
+    dark: '#3b3a55',
+    size: 1.1,
+    wings: true,
+    count: 2,
+  },
+  tidewisp: {
+    form: 'drifter',
+    core: '#9fd9d4',
+    accent: '#e2fbf4',
+    dark: '#3d6a70',
+    size: 0.9,
+    wings: true,
+    count: 3,
+  },
+  prismsliver: {
+    form: 'drifter',
+    core: '#e0f5f8',
+    accent: '#ffffff',
+    dark: '#5d8b95',
+    size: 0.75,
+    count: 2,
+  },
+  miragesliver: {
+    form: 'drifter',
+    core: '#efe3c2',
+    accent: '#fff6de',
+    dark: '#7d7154',
+    size: 0.75,
+    count: 2,
+  },
+  saltstrider: {
+    form: 'strider',
+    core: '#e2d6b4',
+    accent: '#fff4d6',
+    dark: '#6d654c',
+    size: 1.05,
+    count: 3,
+  },
+  emberkite: {
+    form: 'strider',
+    core: '#e8a271',
+    accent: '#ffd9ab',
+    dark: '#6b4230',
+    size: 1.1,
+    count: 2,
+    wings: true,
+  },
+  stonebark: { form: 'bulwark', core: '#a29b7c', accent: '#d6cda6', dark: '#4c4738', size: 1.1 },
+  thornmother: {
+    form: 'bloom',
+    core: '#b3a86f',
+    accent: '#e2d79c',
+    dark: '#4d4630',
+    size: 1.1,
+    count: 6,
+  },
+  marshlantern: {
+    form: 'bloom',
+    core: '#c8d79a',
+    accent: '#f2ffc9',
+    dark: '#3f4a32',
+    size: 1,
+    count: 5,
+  },
+  orrery: { form: 'orb', core: '#b6c1de', accent: '#e8eeff', dark: '#414a68', size: 1, count: 3 },
+  prismshard: {
+    form: 'orb',
+    core: '#c9ecf1',
+    accent: '#ffffff',
+    dark: '#4e737c',
+    size: 1.05,
+    count: 2,
+  },
+  mirage: { form: 'orb', core: '#d8c69c', accent: '#fff3d4', dark: '#6a6047', size: 1, count: 2 },
+  ashanchor: {
+    form: 'monolith',
+    core: '#c08a6d',
+    accent: '#ffcfa6',
+    dark: '#4b3227',
+    size: 1.3,
+    count: 4,
+  },
+  tidechoir: {
+    form: 'titan',
+    core: '#8fd0cf',
+    accent: '#dcfbf5',
+    dark: '#2f545a',
+    size: 1,
+    count: 6,
+    horns: true,
+  },
+  orchardmother: {
+    form: 'titan',
+    core: '#b6ac83',
+    accent: '#e7dcae',
+    dark: '#4a4331',
+    size: 1,
+    count: 7,
+  },
+  saltking: {
+    form: 'titan',
+    core: '#eee2c1',
+    accent: '#fff8e2',
+    dark: '#6d6349',
+    size: 1,
+    count: 5,
+    horns: true,
+  },
+  orrerywarden: {
+    form: 'titan',
+    core: '#a9b5d6',
+    accent: '#e6ecff',
+    dark: '#3c445f',
+    size: 1,
+    count: 8,
+  },
+  marrowherald: {
+    form: 'titan',
+    core: '#94ab89',
+    accent: '#d9e9c6',
+    dark: '#33402e',
+    size: 1,
+    count: 6,
+    horns: true,
+  },
+  fusedtitan: {
+    form: 'titan',
+    core: '#bfe6ee',
+    accent: '#ffffff',
+    dark: '#48696f',
+    size: 1.05,
+    count: 7,
+  },
+  stormremembers: {
+    form: 'titan',
+    core: '#e0a181',
+    accent: '#ffd8b6',
+    dark: '#5b3729',
+    size: 1.1,
+    count: 9,
+    horns: true,
+  },
+};
+function buildShape(root: THREE.Group, shape: Shape) {
+  const { core, accent, dark, size } = shape;
+  const n = shape.count ?? 3;
+  if (shape.form === 'prowler') {
+    // Low, forward, and clearly about to close the distance.
+    part(root, 'body', (s) => {
+      s.orb(dark, [0, 0.62 * size, -0.1], [0.5 * size, 0.36 * size, 0.78 * size]);
+      s.gem(core, [0, 0.82 * size, -0.16], [0.42 * size, 0.3 * size, 0.66 * size], [0.25, 0, 0]);
+      s.orb(dark, [0, 0.6 * size, 0.62 * size], [0.32 * size, 0.28 * size, 0.34 * size]);
+      eyes(s, 0.72 * size, 0.86 * size, 0.16 * size, accent);
+      for (const side of [-1, 1]) {
+        s.spike(
+          accent,
+          [side * 0.2 * size, 0.5 * size, 0.92 * size],
+          [0.09, 0.4 * size, 0.1],
+          [1.25, 0, side * -0.3],
+          true,
+        );
+        if (shape.horns)
+          s.spike(
+            core,
+            [side * 0.24 * size, 1 * size, 0.22 * size],
+            [0.1, 0.5 * size, 0.11],
+            [-0.3, 0, side * 0.4],
+          );
+      }
+      s.link(core, [0, 0.66 * size, -0.7 * size], [0, 0.95 * size, -1.25 * size], 0.13 * size);
+      s.gem(accent, [0, 1 * size, -1.3 * size], [0.14, 0.24, 0.16], [0.5, 0, 0], true);
+    });
+    for (const side of [-1, 1])
+      part(root, side < 0 ? 'legs-left' : 'legs-right', (s) => {
+        for (let i = 0; i < n; i++) {
+          const z = (i - (n - 1) / 2) * 0.52 * size;
+          s.link(
+            dark,
+            [side * 0.34 * size, 0.6 * size, z * 0.6],
+            [side * 0.78 * size, 0.34 * size, z],
+            0.085 * size,
+          );
+          s.link(
+            core,
+            [side * 0.78 * size, 0.34 * size, z],
+            [side * 0.74 * size, 0.05, z + 0.15],
+            0.055 * size,
+          );
+        }
+      });
+    return 1.5 * size;
+  }
+  if (shape.form === 'drifter') {
+    part(root, 'body', (s) => {
+      s.gem(dark, [0, 1 * size, 0], [0.3 * size, 0.62 * size, 0.3 * size]);
+      s.gem(
+        accent,
+        [0, 1.06 * size, 0.1 * size],
+        [0.15 * size, 0.3 * size, 0.16 * size],
+        undefined,
+        true,
+      );
+      for (let i = 0; i < n; i++)
+        s.arc(core, [0, 1 * size, 0], (0.34 + i * 0.14) * size, 0.026, Math.PI * 1.6, [
+          Math.PI / 2,
+          (i * Math.PI) / n,
+          0,
+        ]);
+      s.spike(core, [0, 1.6 * size, 0], [0.22 * size, 0.28 * size, 0.22 * size]);
+    });
+    for (const side of [-1, 1])
+      part(
+        root,
+        side < 0 ? 'wing-left' : 'wing-right',
+        (s) => {
+          if (shape.wings) {
+            s.gem(
+              core,
+              [side * 0.5 * size, 0.24 * size, -0.06],
+              [0.56 * size, 0.4 * size, 0.06],
+              [0, side * 0.28, side * -0.46],
+            );
+            s.gem(
+              accent,
+              [side * 0.4 * size, -0.16 * size, -0.08],
+              [0.36 * size, 0.36 * size, 0.04],
+              [0, 0, side * 0.5],
+              true,
+            );
+          } else {
+            s.gem(
+              core,
+              [side * 0.42 * size, 0.1 * size, 0],
+              [0.2 * size, 0.5 * size, 0.14 * size],
+              [0, 0, side * 0.5],
+            );
+          }
+          s.link(
+            dark,
+            [side * 0.14 * size, -0.24 * size, 0],
+            [side * 0.24 * size, -0.66 * size, -0.18],
+            0.032 * size,
+          );
+        },
+        [0, 1 * size, 0],
+      );
+    return 1.9 * size;
+  }
+  if (shape.form === 'strider') {
+    // All legs. It is already backing away before you have decided anything.
+    part(root, 'body', (s) => {
+      s.gem(core, [0, 1.75 * size, 0], [0.34 * size, 0.42 * size, 0.5 * size], [0.2, 0, 0]);
+      s.orb(dark, [0, 1.7 * size, 0.34 * size], [0.24 * size, 0.2 * size, 0.26 * size]);
+      eyes(s, 1.78 * size, 0.5 * size, 0.12 * size, accent);
+      s.link(dark, [0, 1.55 * size, -0.2 * size], [0, 2.15 * size, -0.5 * size], 0.07 * size);
+      s.gem(accent, [0, 2.24 * size, -0.55 * size], [0.12, 0.22, 0.12], [0.5, 0, 0], true);
+      if (shape.wings)
+        for (const side of [-1, 1])
+          s.gem(
+            core,
+            [side * 0.5 * size, 1.95 * size, -0.2 * size],
+            [0.44 * size, 0.5 * size, 0.05],
+            [0, 0, side * -0.5],
+          );
+    });
+    for (const side of [-1, 1])
+      part(root, side < 0 ? 'legs-left' : 'legs-right', (s) => {
+        for (let i = 0; i < n; i++) {
+          const spread = 0.55 + i * 0.32;
+          s.link(
+            dark,
+            [side * 0.2 * size, 1.6 * size, (i - 1) * 0.2 * size],
+            [side * spread * size, 1.05 * size, (i - 1) * 0.5 * size],
+            0.06 * size,
+          );
+          s.link(
+            core,
+            [side * spread * size, 1.05 * size, (i - 1) * 0.5 * size],
+            [side * (spread + 0.2) * size, 0.04, (i - 1) * 0.65 * size],
+            0.042 * size,
+          );
+        }
+      });
+    return 2.5 * size;
+  }
+  if (shape.form === 'bulwark') {
+    // A wall with a creature behind it. The plate is the point.
+    part(root, 'body', (s) => {
+      s.box(dark, [0, 0.9 * size, -0.2 * size], [0.9 * size, 1.5 * size, 0.7 * size]);
+      s.box(core, [0, 1 * size, 0.42 * size], [1.5 * size, 1.8 * size, 0.36 * size]);
+      s.box(accent, [0, 1.72 * size, 0.5 * size], [1.62 * size, 0.2 * size, 0.3 * size]);
+      for (let i = 0; i < 3; i++)
+        s.gem(
+          accent,
+          [(i - 1) * 0.45 * size, 0.9 * size, 0.62 * size],
+          [0.1, 0.28, 0.06],
+          undefined,
+          true,
+        );
+      s.orb(dark, [0, 1.55 * size, -0.3 * size], [0.34 * size, 0.3 * size, 0.34 * size]);
+      eyes(s, 1.58 * size, -0.02, 0.14 * size, accent);
+    });
+    for (const side of [-1, 1])
+      part(root, side < 0 ? 'legs-left' : 'legs-right', (s) => {
+        s.box(
+          dark,
+          [side * 0.42 * size, 0.28 * size, -0.2 * size],
+          [0.28 * size, 0.6 * size, 0.5 * size],
+        );
+        s.box(
+          core,
+          [side * 0.44 * size, 0.06 * size, -0.12 * size],
+          [0.36 * size, 0.14 * size, 0.62 * size],
+        );
+      });
+    return 2 * size;
+  }
+  if (shape.form === 'bloom') {
+    // Rooted, crowned, and busy. It is doing something, and it is not to you.
+    part(root, 'body', (s) => {
+      s.orb(dark, [0, 0.7 * size, 0], [0.62 * size, 0.6 * size, 0.58 * size]);
+      for (let i = 0; i < n; i++) {
+        const a = (i * Math.PI * 2) / n;
+        s.gem(
+          core,
+          [Math.sin(a) * 0.42 * size, 1.15 * size, Math.cos(a) * 0.42 * size],
+          [0.2 * size, 0.72 * size, 0.15 * size],
+          [Math.cos(a) * 0.5, a, -Math.sin(a) * 0.5],
+        );
+      }
+      s.gem(accent, [0, 1.35 * size, 0], [0.24 * size, 0.44 * size, 0.24 * size], undefined, true);
+      eyes(s, 0.78 * size, 0.56 * size, 0.14 * size, accent);
+    });
+    for (const side of [-1, 1])
+      part(
+        root,
+        side < 0 ? 'arm-left' : 'arm-right',
+        (s) => {
+          s.link(core, [0, 0, 0], [side * 0.5 * size, -0.42 * size, 0.2 * size], 0.075 * size);
+          s.gem(
+            accent,
+            [side * 0.56 * size, -0.5 * size, 0.24 * size],
+            [0.13, 0.2, 0.11],
+            undefined,
+            true,
+          );
+        },
+        [side * 0.3 * size, 1.05 * size, 0],
+      );
+    for (const side of [-1, 1])
+      part(root, side < 0 ? 'legs-left' : 'legs-right', (s) => {
+        for (let i = -1; i <= 1; i++)
+          s.link(
+            dark,
+            [side * 0.3 * size, 0.55 * size, i * 0.2 * size],
+            [side * 0.66 * size, 0.03, i * 0.4 * size],
+            0.07 * size,
+          );
+      });
+    return 2 * size;
+  }
+  if (shape.form === 'orb') {
+    // A core inside rings that are not quite attached to it.
+    part(root, 'body', (s) => {
+      s.gem(accent, [0, 1.05 * size, 0], [0.3 * size, 0.5 * size, 0.3 * size], undefined, true);
+      s.gem(dark, [0, 1.05 * size, 0], [0.46 * size, 0.36 * size, 0.46 * size]);
+      for (let i = 0; i < n; i++)
+        s.arc(core, [0, 1.05 * size, 0], (0.62 + i * 0.2) * size, 0.05 * size, Math.PI * 2, [
+          Math.PI / 2 + i * 0.5,
+          i * 0.7,
+          i * 0.3,
+        ]);
+      for (let i = 0; i < 4; i++) {
+        const a = (i * Math.PI) / 2;
+        s.gem(
+          core,
+          [Math.sin(a) * 0.5 * size, 0.5 * size, Math.cos(a) * 0.5 * size],
+          [0.12 * size, 0.34 * size, 0.12 * size],
+          [0, a, 0.4],
+        );
+      }
+    });
+    part(root, 'tail', (s) => {
+      s.link(dark, [0, 0.5 * size, 0], [0, 0.06, 0], 0.1 * size);
+      s.gem(core, [0, 0.1, 0], [0.44 * size, 0.12 * size, 0.44 * size]);
+    });
+    return 2.1 * size;
+  }
+  if (shape.form === 'monolith') {
+    // It does not chase. It makes the ground the problem.
+    part(root, 'body', (s) => {
+      s.box(dark, [0, 1.2 * size, 0], [1.1 * size, 2.4 * size, 1.1 * size], [0, 0.4, 0]);
+      s.box(core, [0, 1.5 * size, 0], [1.3 * size, 0.9 * size, 1.3 * size], [0, 0.4, 0]);
+      for (let i = 0; i < n; i++) {
+        const a = (i * Math.PI * 2) / n + 0.4;
+        s.gem(
+          accent,
+          [Math.sin(a) * 0.72 * size, 1.5 * size, Math.cos(a) * 0.72 * size],
+          [0.14 * size, 0.5 * size, 0.14 * size],
+          [0, a, 0],
+          true,
+        );
+      }
+      s.gem(accent, [0, 2.55 * size, 0], [0.28 * size, 0.6 * size, 0.28 * size], undefined, true);
+      s.box(dark, [0, 0.16 * size, 0], [1.6 * size, 0.32 * size, 1.6 * size], [0, 0.4, 0]);
+    });
+    return 3 * size;
+  }
+  // titan: a boss stage. Broad shoulders, a crown, and arms that wind up where you can see.
+  part(root, 'body', (s) => {
+    s.orb(dark, [0, 1.5 * size, 0], [1.05 * size, 1.2 * size, 0.9 * size]);
+    s.gem(core, [0, 2.15 * size, 0.1 * size], [0.95 * size, 0.8 * size, 0.8 * size], [0.2, 0, 0]);
+    s.orb(dark, [0, 2.75 * size, 0.18 * size], [0.46 * size, 0.44 * size, 0.46 * size]);
+    eyes(s, 2.8 * size, 0.56 * size, 0.2 * size, accent);
+    crown(s, accent, 3.15 * size, 0.5 * size, n);
+    for (let i = 0; i < n; i++) {
+      const a = (i * Math.PI * 2) / n;
+      s.gem(
+        core,
+        [Math.sin(a) * 1.05 * size, 1.6 * size, Math.cos(a) * 0.85 * size],
+        [0.18 * size, 0.62 * size, 0.16 * size],
+        [Math.cos(a) * 0.4, a, -Math.sin(a) * 0.4],
+      );
+    }
+    if (shape.horns)
+      for (const side of [-1, 1])
+        s.spike(
+          accent,
+          [side * 0.42 * size, 3 * size, 0.1 * size],
+          [0.14 * size, 0.8 * size, 0.14 * size],
+          [-0.2, 0, side * 0.5],
+        );
+    s.box(dark, [0, 0.45 * size, 0], [1.3 * size, 0.9 * size, 1.1 * size]);
+  });
+  for (const side of [-1, 1])
+    part(
+      root,
+      side < 0 ? 'arm-left' : 'arm-right',
+      (s) => {
+        s.link(dark, [0, 0, 0], [side * 0.55 * size, -0.9 * size, 0.15 * size], 0.19 * size);
+        s.gem(
+          core,
+          [side * 0.66 * size, -1.15 * size, 0.2 * size],
+          [0.3 * size, 0.42 * size, 0.3 * size],
+        );
+        s.gem(
+          accent,
+          [side * 0.72 * size, -1.45 * size, 0.28 * size],
+          [0.16, 0.3, 0.16],
+          undefined,
+          true,
+        );
+      },
+      [side * 0.95 * size, 2.2 * size, 0],
+    );
+  for (const side of [-1, 1])
+    part(root, side < 0 ? 'legs-left' : 'legs-right', (s) => {
+      s.box(dark, [side * 0.45 * size, 0.5 * size, 0], [0.42 * size, 1 * size, 0.5 * size]);
+      s.box(
+        core,
+        [side * 0.47 * size, 0.09 * size, 0.1 * size],
+        [0.52 * size, 0.2 * size, 0.72 * size],
+      );
+    });
+  return 3.9 * size;
+}
 function build(kind: string) {
   const root = new THREE.Group(),
     def = ENEMIES[kind];
   const core = def.color;
   let height = 1.8;
-  if (kind === 'cinderling') {
+  const shape = SHAPES[kind];
+  if (shape) {
+    height = buildShape(root, shape);
+  } else if (kind === 'cinderling') {
     part(root, 'body', (s) => {
       s.orb('#744c3e', [0, 0.52, -0.06], [0.45, 0.34, 0.65]);
       s.orb('#ae7047', [0, 0.65, 0.42], [0.4, 0.35, 0.4]);
@@ -787,14 +1304,10 @@ export function animateCreature(
     parts.body.scale.set(1 + windup * 0.025, 1 - windup * 0.025, 1 + windup * 0.025);
     parts.body.rotation.x = -windup * 0.04;
   }
-  const floating = [
-    'wisp',
-    'archivist',
-    'duskwarden',
-    'sovereign',
-    'cinderelder',
-    'nullelder',
-  ].includes(e.kind);
+  const floating =
+    ['wisp', 'archivist', 'duskwarden', 'sovereign', 'cinderelder', 'nullelder'].includes(e.kind) ||
+    SHAPES[e.kind]?.form === 'drifter' ||
+    SHAPES[e.kind]?.form === 'orb';
   const rig = root.getObjectByName('rig')!;
   rig.position.y = floating && !reduced ? Math.sin(t * 2.3 + e.x) * 0.08 : Math.abs(step) * 0.028;
 }

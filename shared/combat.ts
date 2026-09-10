@@ -8,6 +8,12 @@ export const TRAITS = {
   leech: { name: 'Lifebloom', description: 'Recover 3 health on each kill.' },
   vigor: { name: 'Waywind', description: '8% faster movement.' },
   focus: { name: 'Wellspring', description: 'Recover 3 additional light per second.' },
+  ricochet: { name: 'Skipstone', description: 'Shots bounce once off scenery and the world edge.' },
+  aegis: { name: 'Standing Oath', description: 'Absorb one hit every 10 seconds.' },
+  trail: { name: 'Emberwake', description: 'Your dash leaves a burning trail behind you.' },
+  grace: { name: 'Second Breath', description: 'A perfect dodge returns 12 light.' },
+  zeal: { name: 'Undimmed', description: '14% more damage while at full health.' },
+  defiance: { name: 'Last Light', description: '25% more damage below a third health.' },
 } as const;
 export type Trait = keyof typeof TRAITS;
 export function hasTrait(c: Character, trait: Trait) {
@@ -43,6 +49,12 @@ export function itemSummary(item: Item) {
         ? `+${item.power * 5} health`
         : `+${item.power * 2.5} light`;
   return `${stat}${item.trait ? ` · ${TRAITS[item.trait].name}` : ''}`;
+}
+/** The damage a build actually deals right now, including the traits that read the health bar. */
+export function situationalDamage(c: Character, hp: number, maxHp: number) {
+  const full = hp >= maxHp - 0.5 && hasTrait(c, 'zeal') ? 1.14 : 1;
+  const low = hp <= maxHp / 3 && hasTrait(c, 'defiance') ? 1.25 : 1;
+  return full * low;
 }
 export const chainMultiplier = (kills: number) => 1 + Math.min(4, Math.floor(kills / 5)) * 0.1;
 export const CHAIN_WINDOW = 12;
@@ -106,5 +118,48 @@ export const BOSS_RELICS: Record<
     slot: 'weapon',
     trait: 'swift',
     description: 'The crown was never the source of the flame. You are.',
+  },
+
+  tidechoir: {
+    name: 'A Note Held Underwater',
+    slot: 'charm',
+    trait: 'grace',
+    description: 'Forty voices, one breath, and it has not run out yet.',
+  },
+  orchardmother: {
+    name: 'The Last Seedling',
+    slot: 'armor',
+    trait: 'aegis',
+    description: 'Something small enough to shelter, and stubborn enough to be worth it.',
+  },
+  saltking: {
+    name: 'Crown of White Towers',
+    slot: 'weapon',
+    trait: 'ricochet',
+    description: 'The kingdom he was promised, kept in the only place it ever existed.',
+  },
+  orrerywarden: {
+    name: 'The Hour That Never Struck',
+    slot: 'charm',
+    trait: 'trail',
+    description: 'One gear, still turning, still convinced the sky is up there somewhere.',
+  },
+  marrowherald: {
+    name: 'What the Marsh Announced',
+    slot: 'armor',
+    trait: 'defiance',
+    description: 'Nobody understood the message. Everybody understood the warning.',
+  },
+  fusedtitan: {
+    name: 'A Hundred Held Together',
+    slot: 'weapon',
+    trait: 'zeal',
+    description: 'One shape stood up out of the wave. It has been standing ever since.',
+  },
+  stormremembers: {
+    name: 'Everything the Storm Kept',
+    slot: 'armor',
+    trait: 'leech',
+    description: 'It has been holding on to all of it. It will give some of it back.',
   },
 };

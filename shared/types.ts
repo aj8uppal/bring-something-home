@@ -215,7 +215,7 @@ export interface Snapshot {
   effects: Effect[];
   cooldowns: { dash: number; ability: number; potion: number; travel?: number };
   realm: RealmInfo;
-  event: { active: boolean; remaining: number; kills: number; target: number };
+  event: import('./events.js').EventState;
   latency?: number;
   motion?: { seq: number; heldFor: number; epoch: number };
   chain?: { kills: number; remaining: number; multiplier: number };
@@ -224,6 +224,18 @@ export interface Snapshot {
   hazards?: HazardState[];
   expeditions?: ExpeditionListing[];
   roster?: RosterEntry[];
+  /** Realm-wide setpiece state, sent with the roster once a second. */
+  setpieces?: import('./setpieces.js').SetpieceState[];
+  /** The setpiece the traveler is standing inside, if any. */
+  setpiece?: {
+    id: string;
+    name: string;
+    title: string;
+    detail: string;
+    current: number;
+    total: number;
+    kind: string;
+  };
 }
 export interface Input {
   x: number;

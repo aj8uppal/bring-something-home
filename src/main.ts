@@ -531,7 +531,13 @@ function renderVitals() {
   );
   if (e.active)
     $('event-banner').innerHTML =
-      `${icon('spark')} <span>THE WANDERING STAR<small>${e.kills}/${e.target} guardians · ${Math.ceil(e.remaining)}s · Cindermeadow east</small></span>`;
+      `${icon('spark')} <span>${(e.name ?? 'THE WANDERING STAR').toUpperCase()}<small>${e.kills}/${e.target} · ${Math.ceil(e.remaining)}s · ${placeById(e.place)?.name ?? 'the wilds'}</small></span>`;
+  // A setpiece names itself on approach and then counts, in the same slot as the event.
+  const piece = snapshot.setpiece;
+  $('setpiece-banner').classList.toggle('hidden', !piece);
+  if (piece)
+    $('setpiece-banner').innerHTML =
+      `${icon('flame')} <span>${piece.name.toUpperCase()}<small>${piece.title} · ${piece.kind === 'lanterns' ? `${piece.current}/${piece.total} lit` : `${piece.current}%`}</small></span>`;
   const chain = snapshot.chain;
   $('chain-meter').classList.toggle('hidden', !chain || chain.kills < 2 || p.safe);
   if (chain) {

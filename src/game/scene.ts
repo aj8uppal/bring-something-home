@@ -26,6 +26,16 @@ import {
   zoneAt,
 } from '../../shared/content';
 import { PROPS, groundHeight, random } from '../../shared/world';
+import {
+  ISLAND,
+  WILDS_RADIUS,
+  ROADS,
+  SHORTCUTS,
+  SETPIECE_SLOTS,
+  placeAt,
+  type BiomeId,
+} from '../../shared/places';
+import { BIOMES } from '../../shared/biomes';
 import type {
   ClassId,
   Dimension,
@@ -372,7 +382,7 @@ export class WorldView {
         toneMapped: false,
         fog: false,
       }),
-      4,
+      20,
     );
     this.beacons.count = 0;
     this.beacons.frustumCulled = false;
@@ -431,9 +441,17 @@ export class WorldView {
     ocean.rotation.x = -Math.PI / 2;
     ocean.position.y = -3.1;
     this.world.add(ocean);
-    const cliff = mesh(new THREE.CylinderGeometry(84.5, 78, 9, 80, 1), '#747f74', 0, -4.9, -8);
+    const cliff = mesh(
+      new THREE.CylinderGeometry(WILDS_RADIUS - 1.5, WILDS_RADIUS - 8, 9, 96, 1),
+      '#747f74',
+      0,
+      -4.9,
+      -8,
+    );
     this.world.add(cliff);
-    const ground = new THREE.PlaneGeometry(172, 172, 86, 86);
+    const span = WILDS_RADIUS * 2,
+      segments = settings.quality === 'low' ? 96 : 128;
+    const ground = new THREE.PlaneGeometry(span, span, segments, segments);
     ground.rotateX(-Math.PI / 2);
     ground.translate(0, 0, -8);
     const position = ground.attributes.position,
@@ -446,19 +464,24 @@ export class WorldView {
         z = position.getZ(i);
       position.setY(i, groundHeight(x, z));
       const safe = distance({ x, z }, HAVEN) < 14;
-      const base = safe
-        ? '#b8b399'
-        : x < -25
-          ? '#758f83'
-          : x > 25
-            ? '#bea27e'
-            : z < -44
-              ? '#8d8993'
-              : '#a0a37a';
-      // Each zone's map color grades the ground beneath it, subtly, as atmosphere.
+      const place = placeAt(x, z),
+        biome = BIOMES[place.id as BiomeId];
+      // The island keeps its original quartering; each outer biome brings its own ground.
+      const base = biome
+        ? biome.ground
+        : safe
+          ? '#b8b399'
+          : x < -25
+            ? '#758f83'
+            : x > 25
+              ? '#bea27e'
+              : z < -44
+                ? '#8d8993'
+                : '#a0a37a';
+      // Each place's map color grades the ground beneath it, subtly, as atmosphere.
       color
         .set(base)
-        .lerp(tint.set(zoneAt(x, z).color), safe ? 0.1 : 0.2)
+        .lerp(tint.set(place.color), safe ? 0.1 : 0.2)
         .multiplyScalar(0.89 + rng() * 0.2);
       colors.push(color.r, color.g, color.b);
     }
@@ -468,7 +491,11 @@ export class WorldView {
       const a = index.getX(i),
         b = index.getX(i + 1),
         c = index.getX(i + 2);
-      if ([a, b, c].every((k) => Math.hypot(position.getX(k), position.getZ(k) + 8) < 85.5))
+      if (
+        [a, b, c].every(
+          (k) => Math.hypot(position.getX(k), position.getZ(k) + 8) < WILDS_RADIUS - 0.5,
+        )
+      )
         indices.push(a, b, c);
     }
     ground.setIndex(indices);
@@ -614,6 +641,61 @@ export class WorldView {
           p.rotation,
           '#c7bda4',
         );
+      } else if (p.kind === 'water') {
+        // Standing water: a dark pane just under the ground, ringed by wet stone.
+        instance(
+          'water',
+          CYL,
+          p.x,
+          y - 0.12,
+          p.z,
+          p.radius * 1.02,
+          0.16,
+          p.radius * 1.02,
+          p.rotation,
+          '#3f6d76',
+        );
+        for (let i = 0; i < 5; i++) {
+          const a = p.rotation + (i / 5) * Math.PI * 2;
+          instance(
+            'rock',
+            ICO,
+            p.x + Math.cos(a) * p.radius * 0.95,
+            y - 0.02,
+            p.z + Math.sin(a) * p.radius * 0.95,
+            0.42,
+            0.26,
+            0.42,
+            a,
+            p.color,
+          );
+        }
+      } else if (p.kind === 'wall') {
+        // A standing slab: real geography, not scattered obstacles.
+        instance(
+          'wall',
+          BOX,
+          p.x,
+          y + 1.15 * s,
+          p.z,
+          p.radius * 2,
+          2.3 * s,
+          p.radius * 0.7,
+          p.rotation,
+          p.color,
+        );
+        instance(
+          'wall',
+          BOX,
+          p.x,
+          y + 2.35 * s,
+          p.z,
+          p.radius * 1.5,
+          0.28 * s,
+          p.radius * 0.95,
+          p.rotation,
+          '#c8bda6',
+        );
       } else if (p.kind === 'signpost') {
         const sign = new THREE.Group();
         const post = mesh(CYL, '#7b6a52', 0, y + 1.1, 0);
@@ -644,23 +726,19 @@ export class WorldView {
           );
       }
     }
-    for (let z = -76; z < 39; z += 2.7)
-      for (const x of [-1, 1])
-        instance(
-          'path',
-          BOX,
-          x + Math.sin(z) * 0.12,
-          groundHeight(x, z) + 0.045,
-          z,
-          1.7,
-          0.1,
-          2.5,
-          Math.sin(z) * 0.04,
-          '#b9b399',
-        );
-    for (let x = -42; x < 45; x += 2.7)
-      for (const z of [19, 21])
-        if (Math.abs(x) > 11)
+    // Every road in the realm is one table. Two slabs per step, laid along the segment.
+    for (const [a, b] of ROADS) {
+      const dx = b.x - a.x,
+        dz = b.z - a.z,
+        length = Math.hypot(dx, dz);
+      if (!length) continue;
+      const ux = dx / length,
+        uz = dz / length;
+      for (let t = 0; t < length; t += 2.7)
+        for (const side of [-1, 1]) {
+          const x = a.x + ux * t - uz * side,
+            z = a.z + uz * t + ux * side;
+          if (distance({ x, z }, HAVEN) < 10.5) continue;
           instance(
             'path',
             BOX,
@@ -669,10 +747,69 @@ export class WorldView {
             z,
             2.5,
             0.1,
-            1.7,
-            Math.sin(x) * 0.04,
+            2.5,
+            Math.atan2(-uz, ux) + Math.sin(t) * 0.03,
             '#b9b399',
           );
+        }
+    }
+    // The one-way passes home: an arch you walk into, and a lit step where you come out.
+    for (const pass of SHORTCUTS) {
+      const g = new THREE.Group();
+      for (const side of [-1, 1]) {
+        const leg = mesh(CYL, '#9a8f77', side * 2, 1.7, 0);
+        leg.scale.set(0.42, 3.4, 0.42);
+        g.add(leg);
+      }
+      const lintel = mesh(BOX, '#b4a98f', 0, 3.5, 0);
+      lintel.scale.set(5.2, 0.5, 0.9);
+      g.add(lintel);
+      const glow = ring(1.7, '#edc48e', 0.09);
+      glow.position.set(0, 1.7, 0);
+      g.add(glow);
+      g.position.set(pass.from.x, groundHeight(pass.from.x, pass.from.z), pass.from.z);
+      g.lookAt(ISLAND.x, g.position.y, ISLAND.z);
+      this.world.add(g);
+      this.decorations.push(g);
+      const label = textSprite(pass.name, '#f0dcae', 1.1, 56);
+      label.position.set(pass.from.x, groundHeight(pass.from.x, pass.from.z) + 4.8, pass.from.z);
+      this.world.add(label);
+      const step = mesh(
+        new THREE.CylinderGeometry(2.4, 2.6, 0.3, 16),
+        '#a89e88',
+        pass.to.x,
+        groundHeight(pass.to.x, pass.to.z),
+        pass.to.z,
+      );
+      this.world.add(step);
+    }
+    // Setpiece anchors read as somewhere before you know what they are.
+    for (const slot of SETPIECE_SLOTS) {
+      const y = groundHeight(slot.x, slot.z);
+      const plinth = mesh(
+        new THREE.CylinderGeometry(slot.radius * 0.55, slot.radius * 0.62, 0.34, 20),
+        '#9d9682',
+        slot.x,
+        y - 0.05,
+        slot.z,
+      );
+      this.world.add(plinth);
+      for (let i = 0; i < 6; i++) {
+        const a = (i / 6) * Math.PI * 2;
+        instance(
+          'ruin',
+          BOX,
+          slot.x + Math.cos(a) * slot.radius * 0.72,
+          y + 0.85,
+          slot.z + Math.sin(a) * slot.radius * 0.72,
+          0.7,
+          1.7,
+          0.7,
+          a,
+          slot.color,
+        );
+      }
+    }
     for (const { geo, list } of batches.values()) {
       const m = new THREE.InstancedMesh(geo, material('#ffffff'), list.length);
       list.forEach((p, i) => {
@@ -727,12 +864,13 @@ export class WorldView {
       g.position.set(x, groundHeight(x, z), z);
       this.world.add(g);
     }
-    const motes = new Float32Array(160 * 3),
+    const moteCount = 320,
+      motes = new Float32Array(moteCount * 3),
       mr = random(145);
-    for (let i = 0; i < 160; i++) {
-      motes[i * 3] = (mr() - 0.5) * 120;
+    for (let i = 0; i < moteCount; i++) {
+      motes[i * 3] = (mr() - 0.5) * WILDS_RADIUS * 2;
       motes[i * 3 + 1] = mr() * 10 + 1;
-      motes[i * 3 + 2] = (mr() - 0.5) * 120;
+      motes[i * 3 + 2] = (mr() - 0.5) * WILDS_RADIUS * 2 - 8;
     }
     const mg = new THREE.BufferGeometry();
     mg.setAttribute('position', new THREE.BufferAttribute(motes, 3));
@@ -1069,7 +1207,7 @@ export class WorldView {
     this.snapshot = s;
     this.lastSnapshot = performance.now();
     this.switchDimension(s.self.dimension);
-    this.updateBeacons(s.realm.seals ?? [], s.realm.crown);
+    this.updateBeacons(s.realm.seals ?? [], s.realm.crown, s);
     if (changed || teleported || distance(this.focus, s.self) > 16) {
       this.focus.set(s.self.x, 0, s.self.z);
       this.target.copy(this.focus);
@@ -1232,23 +1370,36 @@ export class WorldView {
     this.labels.delete(id);
   }
   /** One column per living warden; the open Crown gets one too. Renewal restores them all. */
-  updateBeacons(seals: string[], crown?: string) {
-    const signature = `${seals.join(',')}|${crown}`;
+  /** Light columns for everything worth walking toward: seals, the Crown, the live event,
+   * and any setpiece a crew has woken. One instanced mesh; a signature keeps it idle. */
+  updateBeacons(seals: string[], crown?: string, s?: Snapshot) {
+    const live = (s?.setpieces ?? []).filter((p) => p.status === 'active');
+    const event = s?.event.active ? s.event : undefined;
+    const signature = `${seals.join(',')}|${crown}|${live.map((p) => p.id).join(',')}|${event?.id ?? ''}`;
     if (signature === this.beaconSignature) return;
     this.beaconSignature = signature;
-    const posts: { x: number; z: number; kind: string }[] = WARDENS.filter(
+    const posts: { x: number; z: number; kind: string; color?: string }[] = WARDENS.filter(
       (w) => !seals.includes(w.kind),
     ).map((w) => ({ x: w.x, z: w.z, kind: w.kind }));
     if (crown === 'open') posts.push({ x: 0, z: -66, kind: 'sovereign' });
-    posts.forEach((w, i) => {
+    for (const piece of live)
+      posts.push({ x: piece.x, z: piece.z, kind: piece.id, color: piece.color });
+    if (event)
+      posts.push({
+        x: event.x ?? 18,
+        z: event.z ?? -12,
+        kind: event.id ?? 'event',
+        color: event.beacon,
+      });
+    posts.slice(0, this.beacons.instanceMatrix.count).forEach((w, i) => {
       this.dummy.position.set(w.x, groundHeight(w.x, w.z) + 45, w.z);
       this.dummy.rotation.set(0, 0, 0);
       this.dummy.scale.set(1, 1, 1);
       this.dummy.updateMatrix();
       this.beacons.setMatrixAt(i, this.dummy.matrix);
-      this.beacons.setColorAt(i, this.color.set(WARDEN_COLORS[w.kind] ?? '#e3c68c'));
+      this.beacons.setColorAt(i, this.color.set(w.color ?? WARDEN_COLORS[w.kind] ?? '#e3c68c'));
     });
-    this.beacons.count = posts.length;
+    this.beacons.count = Math.min(posts.length, this.beacons.instanceMatrix.count);
     this.beacons.instanceMatrix.needsUpdate = true;
     if (this.beacons.instanceColor) this.beacons.instanceColor.needsUpdate = true;
   }
@@ -1616,8 +1767,12 @@ export class WorldView {
     if (this.dimension === 'wilds') {
       // Fog and sky drift toward the zone underfoot: atmosphere, never a filter.
       const p = this.playing && s ? this.prediction.position : { x: 0, z: 20 };
-      const zone = zoneAt(p.x, p.z);
-      this.fogTarget.copy(FOG_BASE).lerp(this.color.set(zone.color), 0.26);
+      const zone = zoneAt(p.x, p.z),
+        biome = BIOMES[zone.id as BiomeId];
+      // Each biome carries its own weather: the fog and the sky follow you across the ring.
+      this.fogTarget
+        .copy(biome ? this.color.set(biome.fog) : FOG_BASE)
+        .lerp(this.color.set(zone.color), 0.26);
       this.skyTarget.copy(SKY_BASE).lerp(this.color, 0.18);
       const ease = 1 - Math.exp(-dt * 1.4);
       (this.scene.fog as THREE.FogExp2).color.lerp(this.fogTarget, ease);

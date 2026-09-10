@@ -1,5 +1,6 @@
 import { CLASSES, HAVEN } from '../../shared/content';
 import { ISLAND, propsInBox, PROPS } from '../../shared/world';
+import { WILDS_RADIUS } from '../../shared/places';
 import {
   DUNGEON_PLACES,
   OVERWORLD,
@@ -373,7 +374,7 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
   // The minimap follows the player; the atlas fits the island.
   const span = view.span ?? MINIMAP_SPANS[1];
   const zoom = large ? Math.max(ATLAS_ZOOM.min, Math.min(ATLAS_ZOOM.max, view.atlasZoom ?? 1)) : 1;
-  const scale = large ? (Math.min(w, h) / (ISLAND.radius * 2 + 24)) * zoom : w / span;
+  const scale = large ? (Math.min(w, h) / (WILDS_RADIUS * 2 + 16)) * zoom : w / span;
   const pan = large ? (view.atlasPan ?? { x: 0, z: 0 }) : { x: 0, z: 0 };
   const originX = (large ? 0 : self.x) + pan.x;
   const originZ = (large ? ISLAND.z : self.z) + pan.z;
@@ -418,7 +419,7 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
   // Ground: the island disc, then one soft wash per place so the biome under you reads by colour.
   ctx.beginPath();
   const [ix, iy] = at(ISLAND.x, ISLAND.z);
-  ctx.arc(ix, iy, ISLAND.radius * scale, 0, Math.PI * 2);
+  ctx.arc(ix, iy, WILDS_RADIUS * scale, 0, Math.PI * 2);
   ctx.fillStyle = MAP_COLORS.ground;
   ctx.fill();
   ctx.clip();
@@ -468,23 +469,43 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
   for (const p of specks) {
     if (p.kind === 'grass' || p.kind === 'signpost') continue;
     const [x, y] = at(p.x, p.z);
-    ctx.fillStyle = p.kind === 'tree' ? '#203f3666' : '#d5c7a333';
-    ctx.fillRect(x, y, speckSize, speckSize);
+    ctx.fillStyle =
+      p.kind === 'water'
+        ? '#4e838c88'
+        : p.kind === 'wall'
+          ? '#8d8674aa'
+          : p.kind === 'tree'
+            ? '#203f3666'
+            : '#d5c7a333';
+    const size = p.kind === 'water' || p.kind === 'wall' ? speckSize * 1.8 : speckSize;
+    ctx.fillRect(x, y, size, size);
   }
   ctx.restore();
 
   ctx.strokeStyle = MAP_COLORS.rim;
   ctx.lineWidth = 1;
   ctx.beginPath();
-  ctx.arc(ix, iy, (ISLAND.radius + 1) * scale, 0, Math.PI * 2);
+  ctx.arc(ix, iy, (WILDS_RADIUS + 1) * scale, 0, Math.PI * 2);
   ctx.stroke();
+  // The island's shore still reads as a boundary: inside it is the story, outside it the ring.
+  ctx.strokeStyle = MAP_COLORS.rim + '77';
+  ctx.setLineDash([5, 6]);
+  ctx.beginPath();
+  ctx.arc(ix, iy, ISLAND.radius * scale, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.setLineDash([]);
 
   // Place names. The atlas labels every place; the minimap labels the one you are in.
   ctx.textAlign = 'center';
   if (large) {
     for (const place of PLACES) {
       if (place.kind === 'dungeon') continue;
-      if (place.kind === 'setpiece' && !snapshot?.event.active) continue;
+      // Setpieces are named on the atlas once discovered, and always while they are live.
+      if (place.kind === 'setpiece') {
+        const live = snapshot?.setpieces?.find((sp) => sp.id === place.id);
+        if (!live && place.id === 'wandering-star' && !snapshot?.event.active) continue;
+        if (live && live.status !== 'active' && !visited.has(place.id)) continue;
+      }
       const [x, y] = at(place.x, place.z - place.radius * 0.28);
       const seen = known(place);
       ctx.font = '600 12px system-ui';
@@ -589,18 +610,41 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
       hits,
       w,
     );
+    // Live setpieces: a ring you can see from anywhere on the atlas, with its own progress.
+    for (const piece of snapshot.setpieces ?? []) {
+      if (piece.status !== 'active') continue;
+      const [x, y] = at(piece.x, piece.z);
+      ctx.strokeStyle = piece.color;
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.arc(x, y, 13 * scale, 0, Math.PI * 2);
+      ctx.stroke();
+      if (large) {
+        ctx.font = 'bold 9px system-ui';
+        ctx.fillStyle = piece.color;
+        ctx.fillText(
+          `${piece.name.toUpperCase()} · ${piece.current}/${piece.total}`,
+          x,
+          y - 13 * scale - 5,
+        );
+      }
+    }
     if (snapshot.event.active) {
-      const [x, y] = at(WANDERING_STAR.x, WANDERING_STAR.z);
-      ctx.strokeStyle = MAP_COLORS.event;
+      const at2 = {
+        x: snapshot.event.x ?? WANDERING_STAR.x,
+        z: snapshot.event.z ?? WANDERING_STAR.z,
+      };
+      const [x, y] = at(at2.x, at2.z);
+      ctx.strokeStyle = snapshot.event.beacon ?? MAP_COLORS.event;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
       ctx.arc(x, y, WANDERING_STAR.radius * scale, 0, Math.PI * 2);
       ctx.stroke();
       if (large) {
         ctx.font = 'bold 10px system-ui';
-        ctx.fillStyle = MAP_COLORS.event;
+        ctx.fillStyle = snapshot.event.beacon ?? MAP_COLORS.event;
         ctx.fillText(
-          `WANDERING STAR · ${Math.ceil(snapshot.event.remaining)}s · ${snapshot.event.kills}/${snapshot.event.target}`,
+          `${(snapshot.event.name ?? WANDERING_STAR.name).toUpperCase()} · ${Math.ceil(snapshot.event.remaining)}s · ${snapshot.event.kills}/${snapshot.event.target}`,
           x,
           y - WANDERING_STAR.radius * scale - 6,
         );
@@ -657,7 +701,16 @@ function edgeMarkers(view: MapView): Marker[] {
       color: view.pin ? MAP_COLORS.pin : MAP_COLORS.objective,
     });
   if (snapshot?.event.active)
-    markers.push({ x: WANDERING_STAR.x, z: WANDERING_STAR.z, color: MAP_COLORS.event, glyph: '★' });
+    markers.push({
+      x: snapshot.event.x ?? WANDERING_STAR.x,
+      z: snapshot.event.z ?? WANDERING_STAR.z,
+      color: snapshot.event.beacon ?? MAP_COLORS.event,
+      glyph: '★',
+    });
+  // Live setpieces are the other reason to leave the road, so they get an edge chevron too.
+  for (const piece of snapshot?.setpieces ?? [])
+    if (piece.status === 'active')
+      markers.push({ x: piece.x, z: piece.z, color: piece.color, glyph: '✦' });
   for (const place of DUNGEON_PLACES) {
     const listing = snapshot?.expeditions?.find((e) => e.dimension === place.dimension);
     if (listing && listing.status !== 'empty')

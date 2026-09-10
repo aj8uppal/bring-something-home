@@ -1,6 +1,6 @@
 import { createCharacter, makeItem, stats } from '../server/model.js';
 import { DUNGEONS, distance, zoneAt } from '../shared/content.js';
-import { SPAWN_TABLE } from '../server/realm.js';
+import { ECOLOGY } from '../shared/biomes.js';
 /** Self-contained load test. Creates a disposable database and server; never uses player accounts. */
 import { spawn } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
@@ -17,7 +17,7 @@ const expedition = process.env.LOAD_EXPEDITION === 'eclipse';
 const meadow = process.env.LOAD_ZONE === 'meadow';
 const count = Math.max(1, Math.min(48, Number(process.env.LOAD_PLAYERS || (meadow ? 20 : 48)))),
   seconds = Math.max(5, Number(process.env.LOAD_SECONDS || 20));
-const meadowBase = SPAWN_TABLE.find((z) => z.zone === 'meadow')!.baseCount;
+const meadowBase = ECOLOGY.find((z) => z.place === 'meadow')!.baseCount;
 const dir = mkdtempSync(join(tmpdir(), 'emberwilds-load-')),
   path = join(dir, 'load.sqlite'),
   store = new Store(path);

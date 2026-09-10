@@ -11,10 +11,10 @@ export function makeItem(slot: Slot, tier: number, rarity: Rarity, rng = Math.ra
   const name = names[slot][Math.floor(rng() * names[slot].length)];
   const traits: Trait[] =
     slot === 'weapon'
-      ? ['echo', 'swift', 'pierce']
+      ? ['echo', 'swift', 'pierce', 'ricochet', 'zeal']
       : slot === 'armor'
-        ? ['leech', 'vigor']
-        : ['focus', 'vigor', 'leech'];
+        ? ['leech', 'vigor', 'aegis', 'defiance']
+        : ['focus', 'vigor', 'leech', 'trail', 'grace'];
   const trait =
     rarity === 'rare' || rarity === 'relic' ? traits[Math.floor(rng() * traits.length)] : undefined;
   return {
