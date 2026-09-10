@@ -47,7 +47,10 @@ for (const cls of (process.env.JOURNEY_CLASS
     path: Vec[] = [],
     pathKey = '',
     nextPath = 0,
-    lastLog = 0;
+    lastLog = 0,
+    stallFrom = { x: 0, z: 0 },
+    stallSince = 0,
+    stallReported = false;
   try {
     while (p.profile.character && p.profile.character.quest < 8 && realm.time < 1800) {
       const c = p.profile.character,
@@ -155,6 +158,9 @@ for (const cls of (process.env.JOURNEY_CLASS
       const dx = p.x - waypoint.x,
         dz = p.z - waypoint.z,
         d = Math.hypot(dx, dz) || 1;
+      // A pocket the step search cannot see out of freezes the pilot until the budget runs
+      // out. Notice it early and walk out; the stall report below still fires if that fails.
+      const wedged = realm.time - stallSince > 8 && !direct && distance(p, target) > 4;
       let best = { x: 0, z: 0, score: Infinity };
       // Never evaluate a step that overshoots the waypoint, or standing still wins by a hair
       // and the pilot parks a couple of units short of a corridor mouth forever.
@@ -163,7 +169,13 @@ for (const cls of (process.env.JOURNEY_CLASS
         const a = (i * Math.PI) / 12,
           x = i === -2 ? (-dx / d) * Math.min(1, d / (s.speed * 0.4)) : i < 0 ? 0 : Math.cos(a),
           z = i === -2 ? (-dz / d) * Math.min(1, d / (s.speed * 0.4)) : i < 0 ? 0 : Math.sin(a);
-        let score = Math.abs(Math.hypot(dx + x * stride, dz + z * stride) - range) * 0.35;
+        // Wedged: the pilot has not moved in a while, so stop asking which step is closest
+        // to where it wants to be — every one of those is into a wall — and ask which step
+        // is anywhere else. The blocked penalties below still apply, so this walks out of
+        // the pocket rather than through it.
+        let score = wedged
+          ? -Math.hypot(p.x + x * stride - stallFrom.x, p.z + z * stride - stallFrom.z) * 0.35
+          : Math.abs(Math.hypot(dx + x * stride, dz + z * stride) - range) * 0.35;
         if (range) score -= ((x * -dz) / d + (z * dx) / d) * 0.2;
         // A shielded front turns shots aside: walk around it rather than into it.
         const shielded = shieldedFront(waypoint);
@@ -229,6 +241,41 @@ for (const cls of (process.env.JOURNEY_CLASS
         realm.action(p.profile.id, 'ability');
       if (c.hp < s.maxHp * 0.2 && !c.potions) realm.action(p.profile.id, 'recall');
       realm.step();
+      // A pilot that stops moving used to spend the rest of the budget standing there and
+      // fail with nothing but a timestamp. Say what it was looking at when it stopped —
+      // past two minutes, which is longer than anything it waits for on purpose.
+      if (distance(p, stallFrom) > 0.5) {
+        stallFrom = { x: p.x, z: p.z };
+        stallSince = realm.time;
+        stallReported = false;
+      } else if (realm.time - stallSince > 120 && !stallReported) {
+        stallReported = true;
+        console.log(
+          cls,
+          'STALL',
+          JSON.stringify({
+            time: realm.time.toFixed(1),
+            p: { x: p.x, z: p.z },
+            dimension: p.dimension,
+            goal: goal.title,
+            action: action || 'none',
+            target,
+            toTarget: +distance(p, target).toFixed(2),
+            room: room && { status: room.status, stage: room.stage, altar: room.altar },
+            toAltar: room ? +distance(p, room.altar).toFixed(2) : undefined,
+            pathLength: path.length,
+            reachable: room ? route(p, room.altar, p.dimension).length : undefined,
+            standable: canMove(p.x, p.z, p.dimension),
+            hp: Math.round(c.hp),
+            maxHp: Math.round(s.maxHp),
+            safe: self.safe,
+            inventory: c.inventory.length,
+            drops: drops.length,
+            bagHere: drops[0] ? +distance(p, drops[0]).toFixed(2) : undefined,
+            enemies: snapshot.enemies.length,
+          }),
+        );
+      }
       if (realm.time - lastLog > 120) {
         console.log(
           cls,
