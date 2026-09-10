@@ -921,8 +921,14 @@ function updateInteraction() {
       text('loot-expiry', String(Math.max(0, Math.ceil(drop.expires - snapshot.time))));
     html = ''; // The bag's controls sit beside the satchel, leaving combat unobstructed.
   } else if (p.dimension === 'wilds') {
+    // A door on the ground is entered exactly the way a Hearth portal is.
+    const door = (snapshot.portals ?? [])
+      .filter((q) => distance(p, q) < 4.5)
+      .sort((a, b) => distance(a, p) - distance(b, p))[0];
     const l = LANDMARKS.find((l) => distance(p, l) < 5);
-    if (l)
+    if (door)
+      html = `<kbd>X</kbd><span>Enter <strong>${esc(door.name)}</strong><small>${door.remaining}s before this door closes · R returns you home</small></span>${icon('portal')}`;
+    else if (l)
       html = `<kbd>X</kbd><span>${l.id === 'forge' ? 'Meet' : l.id === 'vault' ? 'Open' : 'Enter'} <strong>${esc(l.name)}</strong>${l.id in DUNGEONS ? `<small>${l.id === 'eclipse' ? (profile?.victories ? 'Level 20 required · J for Elder depth' : 'Locked · Defeat the Ashen Sovereign') : 'R returns you home'}</small>` : ''}</span>${icon(l.icon)}`;
   } else if (snapshot.dungeon?.status === 'ready' && distance(p, snapshot.dungeon.altar) < 4)
     html = `<kbd>X</kbd><span>Awaken <strong>${snapshot.dungeon.name}</strong><small>Everyone in this dungeon joins the encounter</small></span>${icon('spark')}`;

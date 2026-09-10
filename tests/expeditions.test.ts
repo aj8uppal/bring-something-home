@@ -6,7 +6,7 @@ import { PORTAL_SECONDS, Realm, type Player } from '../server/realm.js';
 import { generateLayout, layoutFor } from '../shared/layout.js';
 import { TEMPLATE_BY_ID } from '../shared/templates.js';
 import { inBounds } from '../shared/world.js';
-import { makeItem, stats } from '../server/model.js';
+import { createCharacter, makeItem, stats } from '../server/model.js';
 import { DUNGEONS, ENEMIES } from '../shared/content.js';
 import { ensureLegacy, EXPEDITIONS, MAX_DEPTH } from '../shared/endgame.js';
 import { BOSS_RELICS } from '../shared/combat.js';
@@ -646,6 +646,82 @@ test('a side room and a secret pay on their own, and the secret pays exactly onc
     const afterSecret = realm.loot.size;
     realm.step();
     assert.equal(realm.loot.size, afterSecret, 'and it pays exactly once per run');
+  } finally {
+    store.close();
+  }
+});
+
+test('a save from before instances keeps its credit, its best times, and its way in', () => {
+  const store = new Store(':memory:'),
+    realm = new Realm('legacy', 'Legacy', store);
+  try {
+    // Exactly the shape an older profile had: clears keyed by dungeon id, best times keyed
+    // by the bare Elder depth, depth credit in highestDepth alone, no bestDepths at all.
+    const account = store.create('Old Light');
+    const c = (account.profile.character = createCharacter('arcanist'));
+    c.level = 20;
+    c.clears = ['hollow'];
+    account.profile.victories = 1;
+    account.profile.legacy = {
+      shards: 24,
+      highestDepth: 4,
+      selectedDepth: 5,
+      clears: 4,
+      bossKills: { archivist: 3 },
+      relics: ['archivist'],
+      bestTimes: { '3': 212.5, '4': 240 },
+    };
+    store.save(account.profile);
+    const p = realm.add(store.authenticate(account.token)!, 'arcanist', () => {});
+    const legacy = ensureLegacy(p.profile);
+    assert.deepEqual(p.profile.character!.clears, ['hollow'], 'the clear is still credited');
+    assert.equal(legacy.shards, 24);
+    assert.equal(legacy.bestDepths!.eclipse, 4, 'depth credit is keyed by template now');
+    assert.equal(legacy.bestTimes['eclipse:3'], 212.5, 'best times are migrated in place');
+    assert.equal(legacy.bestTimes['3'], 212.5, 'and the old keys are left alone');
+    // And they can still walk in, at the depth they had earned.
+    realm.recall(p);
+    realm.action(p.profile.id, 'rally', 'eclipse');
+    assert.equal(templateOf(p.dimension), 'eclipse');
+    assert.equal(realm.dungeons.run(p.dimension)!.depth, 5);
+  } finally {
+    store.close();
+  }
+});
+
+test('an older client decodes a frame that names an instance, and a newer one keeps the id', () => {
+  const store = new Store(':memory:'),
+    realm = new Realm('wire', 'Wire', store);
+  try {
+    const p = realm.add(store.create('Wire').profile, 'ranger', () => {});
+    const run = realm.dungeons.open('warren');
+    p.dimension = run.id;
+    const encoder = new Encoder(),
+      decoder = new Decoder();
+    const frame = encoder.encode({
+      ...({} as Snapshot),
+      type: 'snapshot',
+      tick: 1,
+      time: 1,
+      self: realm.publicPlayer(p),
+      players: [],
+      enemies: [],
+      bullets: [],
+      loot: [],
+      effects: [],
+      cooldowns: { dash: 0, ability: 0, potion: 0 },
+      realm: realm.info(),
+      event: realm.event,
+      roster: realm.roster(),
+    });
+    assert.ok(frame.dims!.includes(run.id), 'the instance id is written once per frame');
+    assert.equal(decoder.decode(frame).self.dimension, run.id);
+    // A version 2 frame has no handle table and still decodes against the original names.
+    const { dims, ...legacyFrame } = frame;
+    void dims;
+    legacyFrame.self = [...frame.self] as typeof frame.self;
+    legacyFrame.self[11] = 1;
+    assert.equal(new Decoder().decode(legacyFrame).self.dimension, 'hollow');
   } finally {
     store.close();
   }

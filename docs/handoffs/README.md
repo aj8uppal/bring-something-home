@@ -3,14 +3,17 @@
 One file per phase of work. Each file is a complete, self-contained brief for an
 agent starting cold in this repository. Hand over exactly one phase at a time.
 
-| Phase | File | Theme | Estimate |
-| ----- | ---- | ----- | -------- |
-| 0 | shipped | Show, don't brief — first-session legibility | done |
-| 1 | [phase-1-sight-lines.md](phase-1-sight-lines.md) | Minimap, world map, HUD, and an objective board | 3–4 weeks |
-| 2 | [phase-2-living-world.md](phase-2-living-world.md) | Three times the map, seven biomes, ecology, setpieces | 5–7 weeks |
-| 3 | [phase-3-doors-everywhere.md](phase-3-doors-everywhere.md) | Dungeon instances, portal drops, room graphs | 5–6 weeks |
-| 4 | [phase-4-mastery.md](phase-4-mastery.md) | Skill ceiling, attunements, level 30, new callings | 4–5 weeks |
-| 5 | brief below | Realm lifecycle and social fabric | 3–4 weeks |
+| Phase | File                                                       | Theme                                                 | Estimate                                 |
+| ----- | ---------------------------------------------------------- | ----------------------------------------------------- | ---------------------------------------- |
+| 0     | shipped                                                    | Show, don't brief — first-session legibility          | done                                     |
+| 1     | shipped                                                    | Minimap, world map, HUD, and an objective board       | done                                     |
+| 2     | [phase-2-living-world.md](phase-2-living-world.md)         | Three times the map, seven biomes, ecology, setpieces | shipped                                  |
+| 3     | [phase-3-doors-everywhere.md](phase-3-doors-everywhere.md) | Dungeon instances, portal drops, room graphs          | shipped                                  |
+| 4     | [phase-4-mastery.md](phase-4-mastery.md)                   | Skill ceiling, attunements, level 30, new callings    | shipped except §5 and the fourth slot    |
+| 5     | brief below                                                | Realm lifecycle and social fabric                     | shipped except the shared Crown raid bar |
+
+Phases 2 to 5 landed together; what was cut from each is recorded in
+`docs/VALIDATION.md` under "The living world, doors, mastery and the realm".
 
 ## The north star for every phase
 

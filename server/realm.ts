@@ -230,6 +230,8 @@ export const MAX_OPEN_PORTALS = 8;
 const BULWARK_TURN = 1.2;
 /** A keeper brings its guard around more slowly than a creature does. */
 const BOSS_TURN = 0.55;
+/** How much of its own health a keeper loses in one windup before the attack breaks. */
+export const BREAK_POINT = 0.015;
 /** How far ahead a dash has to be to count as perfect. Roughly a fifth of a second. */
 export const PERFECT_WINDOW = 0.2;
 /** How long the realm has to gather before the Crown opens. */
@@ -882,12 +884,13 @@ export class Realm {
           }
       } else {
         const count = c.classId === 'arcanist' ? 24 : 9;
+        const situational = situationalDamage(c, c.hp, s.maxHp);
         for (let i = 0; i < count; i++)
           this.shot(
             p,
             c.classId === 'arcanist' ? (i / count) * Math.PI * 2 : p.input.angle + (i - 4) * 0.12,
             22,
-            s.damage * 1.8,
+            s.damage * 1.8 * situational,
             id,
             true,
             1.3,
@@ -1579,7 +1582,8 @@ export class Realm {
           e.contributors.set(b.owner, this.time);
           this.effect('hit', e, b.color, `${Math.round(damage)}`);
           // The break window: enough damage while a boss is winding up cancels the pattern.
-          const breakPoint = ENEMIES[e.kind].breakPoint;
+          // Every keeper has one; the table only tunes how hard a particular one is to break.
+          const breakPoint = e.boss ? (ENEMIES[e.kind].breakPoint ?? BREAK_POINT) : 0;
           if (breakPoint && e.telegraph > 0 && e.hp > 0) {
             e.windupDamage = (e.windupDamage ?? 0) + damage;
             e.breaking = Math.min(1, e.windupDamage / (e.maxHp * breakPoint));
@@ -2889,6 +2893,7 @@ export class Realm {
     this.playerGrid.fill(states);
     for (const p of this.players.values()) {
       if (!p.send || !p.profile.character) continue;
+      const standing = this.setpieceFor(p);
       const visible = (v: { x: number; z: number; dimension: Dimension }) =>
         v.dimension === p.dimension && distance(p, v) < 48;
       p.send({
@@ -2968,10 +2973,15 @@ export class Realm {
         ...(setpieces ? { setpieces } : {}),
         ...(portals ? { portals } : {}),
         ...(liberation ? { liberation } : {}),
+        // Only the graves a traveler could actually walk past: the rest are on the profile.
         ...(roster && this.graveMarkers.length
-          ? { graves: this.graveMarkers.filter((g) => g.dimension === p.dimension).slice(0, 24) }
+          ? {
+              graves: this.graveMarkers
+                .filter((g) => g.dimension === p.dimension && distance(g, p) < 70)
+                .slice(0, 16),
+            }
           : {}),
-        ...(this.setpieceFor(p) ? { setpiece: this.setpieceFor(p) } : {}),
+        ...(standing ? { setpiece: standing } : {}),
       });
     }
     this.effects = [];

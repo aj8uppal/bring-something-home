@@ -1,8 +1,168 @@
-# Bring Something Home · validation record · 1.4.1 + Phases 0–1
+# Bring Something Home · validation record · 1.4.1 + Phases 0–5
 
 Validated September 5, 2026 on macOS with Node 24.20.0, Three.js 0.185.1,
 TypeScript 7.0.2, Vite 8.2.2, and Playwright 1.63.0. Local and public results are
 identified separately below.
+
+## The living world, doors, mastery and the realm · Phases 2–5 (September 9, 2026)
+
+Four phases landed together. What follows is what was built, what the checks say, and
+what was cut.
+
+### The world
+
+The wilds are one disc of radius 150. Inside radius 86 the island is byte-identical: the
+prop stream, the heights and the five places are generated exactly as before, from their own
+untouched random stream, and `groundHeight()` blends into a biome only beyond that radius,
+across a 22-unit seam. Seven biomes tile the ring by bearing as two level ladders that rise
+from the Hearth side and meet at the Ashfall behind the Crown, so a level-22 traveler has
+three places they could go and a different reason for each.
+
+Scenery is budgeted by density per biome rather than scaled: 3,120 props against the
+original 1,300 for roughly three times the area, in one instanced batch per kind. Every road
+in the realm is one table — the two Hearth roads extended to an inner ring at radius 80,
+seven spokes, a ring road at radius 116 through every biome centre, and three one-way passes
+home. A sweep of every road centreline at 0.4-metre intervals (4,642 samples) finds **zero
+blocked points**, and a lap of the ring road passes through all seven biomes.
+
+The spawn table is now an ecology of packs that spawn, patrol and wander together. Fourteen
+new creatures and seven biome keepers carry `behaviour` as data — charger, kiter, bulwark,
+splitter, summoner, anchor, lantern — with one attack pattern each, so a pack of one anchor,
+two kiters and a lantern is a genuinely different fight made of bullets you already know how
+to read. Twelve setpiece anchors take one of five shapes from the realm seed. Events are a
+table of five in three shapes, and they move.
+
+### Doors
+
+`Dimension` is `'wilds'` or an instance id shaped `template:seed`. That refactor landed on
+its own with the suite green before anything else in Phase 3. Layouts are generated from the
+instance id alone — three to six chambers, one or two side rooms, sometimes a secret — so no
+layout crosses the wire and two clients in the same instance draw the same architecture. A
+flood fill over 360 generated layouts (nine templates × forty seeds) finds **every room
+reachable from the entry in every one of them**.
+
+Six templates only fall in the world, one per creature family. A dropped door stands open
+for eighty seconds with a beam, a world label, an atlas icon and a chat line naming the
+place; the instance outlives it, and nobody inside is ever moved. Any door opens at depth one
+to five with the same scaling and modifier rotation and rewards to match, gated on the
+traveler's own best clear of that template.
+
+### Mastery
+
+Level 30. `xpForLevel()` is unchanged through twenty and then steepens; reaching thirty costs
+**3.37×** what reaching twenty costs, which is asserted in the unit tests. Seven attunement
+draughts, one per stat, drunk where they lie and lost with the life; keepers pour them freely
+and favour two kinds each. A perfect dodge — a dash that begins inside 0.2 s of a shot that
+would have landed — refunds light and shortens the cooldown, decided by the server against
+the live projectile set. Enough damage during a keeper's windup breaks the pattern, and the
+core brightens as it goes. Every keeper's back takes 35% more; a creature's shielded front
+turns shots aside entirely and a keeper's by 70%, and both now turn at a limited rate rather
+than snapping, which is what makes a bulwark beatable alone.
+
+### The realm
+
+Every creature anyone puts down counts toward taking its place back. At a third the place's
+ruins stop going quiet, at two thirds a second keeper comes out, and at the quota the fog
+lifts and everyone standing there is paid. The atlas draws it as a ring per place; `K` opens
+a board that draws it as a list, beside the open doors and their timers, the live event, the
+woken setpieces, and everybody in the realm. Breaking the third seal starts a one-minute
+muster: the sky turns, the road to the Crown is free from anywhere, and the Sovereign's fall
+gives everyone present the same recap before the realm reseeds — new setpiece shapes, new
+packs, every place to take again. Graves stand where travelers fell.
+
+### Automated checks on this revision
+
+| Check                      | Result                                                                              |
+| -------------------------- | ----------------------------------------------------------------------------------- |
+| `npm run typecheck`        | clean                                                                               |
+| `npm test`                 | 111 unit tests pass (106 before)                                                    |
+| `npm run test:e2e`         | 32 native Chrome scenarios pass                                                     |
+| `npm run test:journey`     | all three callings complete chapter 8: arcanist 635 s, ranger 441 s, sentinel 853 s |
+| `npm run test:balance`     | 66 solo boss encounters cleared, 66/66, plus a head-to-head build comparison        |
+| `npm run test:expeditions` | 33 runs cleared, 33/33, across nine templates and depths 1, 3, 5 and 12             |
+| `npm run test:depth`       | 32 depth samples correct                                                            |
+
+`test:balance` grew from 27 encounters to 66: every biome keeper and every drop-door keeper
+at its recommended band, on a real keeper's stage in a generated instance. It also runs two
+level-30 arcanists against Vesper with different draught spreads and different sets, and
+fails if they are not measurably different:
+
+| Build  | Set                    | Health | Effective | Damage | Blocked | DPS   | Kill   |
+| ------ | ---------------------- | ------ | --------- | ------ | ------- | ----- | ------ |
+| Sharp  | The Sun and the Glass  | 966    | 1,558     | 222.0  | 38%     | 1,664 | 17.2 s |
+| Steady | The Salt and the Stone | 1,218  | 2,581     | 175.4  | 53%     | 877   | 32.2 s |
+
+### Server load
+
+Twenty clients walk out along a biome's spoke road and hold a ring around its heart. The
+budget must never leave a place below its base for longer than five seconds. Deficit
+accounting starts once the herd has actually arrived, since a place nobody has reached yet is
+not a starved place.
+
+| Place                      | Tick work | p95 snapshot | Peak shots | Mean population (base 11/14) | Longest deficit |
+| -------------------------- | --------- | ------------ | ---------- | ---------------------------- | --------------- |
+| Cindermeadow               | 2.73 ms   | 108 ms       | 122        | 10.8                         | 1 s             |
+| The Drowned Coast          | 1.58 ms   | 107 ms       | 312        | 26.2                         | 0 s             |
+| The Petrified Orchard      | 0.41 ms   | 106 ms       | 115        | 30.9                         | 0 s             |
+| The Salt Flat              | 0.37 ms   | 106 ms       | 163        | 26.7                         | 1 s             |
+| The Shattered Observatory  | 0.63 ms   | 106 ms       | 323        | 26.4                         | 0 s             |
+| The Bone Marsh             | 0.60 ms   | 109 ms       | 208        | 18.8                         | 0 s             |
+| The Glacier of Fused Glass | 0.75 ms   | 107 ms       | 413        | 28.2                         | 0 s             |
+| The Ashfall                | 1.67 ms   | 108 ms       | 611        | 18.5                         | 3 s             |
+
+Today's recorded baseline was 1.73 ms of tick work with twenty clients in Cindermeadow; the
+outer ring sits in the same order of magnitude and mostly below it.
+
+Forty-eight clients in the open wilds with the whole outer ring populated: **p95 snapshot
+interval 109 ms**, 2.88 ms of tick work, **peak 793 visible projectiles**, peak 51 visible
+creatures, 237.7 MB aggregate over twenty seconds, zero errors. The 48-unit visibility filter
+and friendly-shot collision both go through a bucket grid now; without it this is the
+quadratic that breaks first.
+
+Twenty-four clients opening doors until the cap is full: **24 live instances** — the
+per-realm ceiling — with **0.36 ms of tick work and 23.7 MB of server heap**. `/api/health`
+reports live instances, open doors, creature count and heap.
+
+### Frame time and captures
+
+Standing in the Petrified Orchard — the densest scenery in the realm at 8.5 props per
+hundred square units — in the running app on native Chrome: **60 fps at High quality and
+60 fps at Low**, 145 draw calls at both. Draw calls stay flat because every kind of scenery
+is one instanced batch regardless of how many of it there are; the outer ring adds rows to
+those batches, not new ones. Across the seven biomes on arrival, draw calls ranged from 60
+in the Petrified Orchard's outer rows to 170 on the Drowned Coast, at 60 fps in all of them.
+Captures: `playtests/biome-*.png` (seven), `playtests/setpiece-*.png`, and
+`playtests/frames-orchard-high.png` / `-low.png`.
+
+`CAPTURES=1 npx playwright test e2e/captures.spec.ts` walks the ring road from the Hearth,
+records one image per biome and per setpiece into `docs/playtests/`, asserts that all seven
+biomes name themselves distinctly on arrival, and prints frame time at both quality settings
+from inside the densest scenery in the realm.
+
+### Cut, deliberately
+
+- **The two new callings.** The Lanternkeeper and the Cartographer are not built. A calling
+  needs its own silhouette, projectile family, range and cadence, and its own place in the
+  balance checks; done badly it is worse than absent. Phase 4 §5 is untouched.
+- **The fourth, ability-modifying equipment slot.** Phase 4 §4's first two parts shipped —
+  twelve traits and seven named sets — but the fourth slot did not. It changes persistence,
+  every comparison table, the satchel and vault UI, and the balance of all three class
+  abilities at once, and the brief asks for it to be added carefully.
+- **Season leaderboards.** Twelve realm modifiers and a weekly season drawn from them
+  shipped, announced on the realm board. Per-season boards for deepest clear, fastest clear
+  and fame, with a persistent badge, did not: they need a schema for season history, which is
+  the one thing the phases were told not to break.
+- **The Crown raid's realm-wide health bar.** The realm ending is an event — a muster, a sky
+  change, free travel, a shared recap and a reseed — but the Sovereign's health is shown by
+  the existing boss ring rather than a dedicated realm-wide bar.
+- **Party rally.** Parties share every kill in the same dimension at any distance and stand
+  out on each other's cards; a party leader cannot pull the party into an instance. Moving
+  someone else's traveler without their input needed more thought than a rally button, and
+  the existing invitation flow already gathers a group at a door.
+- **Attunements are drunk on pickup rather than carried.** The brief calls them consumable
+  items. They are items, they drop into bags, and collecting one drinks it. Making them
+  carryable would let them be banked, and anything bankable outlives the life, which is the
+  one thing they must not do.
 
 ## Sight lines · Phase 1 (September 9, 2026)
 

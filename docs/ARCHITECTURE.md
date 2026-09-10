@@ -13,8 +13,12 @@ teleport resets the prediction history. Visual shot prediction and local ability
 effects do not grant damage, loot, invulnerability, or permission to move.
 The server decides collision outcomes using swept line-segment tests.
 
-A realm has an overworld and three shared dungeon dimensions. Only entities in the
-same dimension and within 48 world units appear in a traveler’s snapshots. Once a
+A realm has one overworld and any number of live dungeon instances. A dimension is
+either `'wilds'` or an instance id shaped `template:seed`; the three story dungeons
+keep their template names as shorthand for the realm’s current instance of each, so
+old saves, invitations and the journey are unaffected. Only entities in the same
+dimension and within 48 world units appear in a traveler’s snapshots, and the filter
+is a bucket-grid lookup rather than a scan of every entity for every traveler. Once a
 second the snapshot also carries a realm roster: id, name, class, level, dimension,
 and position for every connected traveler, so the map can name people at any
 distance. Roster positions may be up to a second old and carry no combat state.
@@ -34,8 +38,13 @@ Per-connection and per-IP rate limits bound messages and expensive endpoints.
 
 The compact wire codec in `shared/protocol.ts` transmits player/enemy tuples and
 projectile spawn/removal deltas, with an optional projectile-art identity on spawn.
-`PROTOCOL_VERSION` 2 adds the optional roster as compact rows; style-free and
-roster-free packets remain valid. Projectiles have constant velocity, so repeated
+`PROTOCOL_VERSION` 3 replaces the fixed four-name dimension table with a per-frame
+handle table: a frame lists the dimensions it mentions once in `dims`, and rows carry
+a small integer into it, so an instance id is written once per frame rather than once
+per entity. A frame without `dims` is a version 2 frame and decodes against the
+original fixed table exactly as it always did; version 2 added the optional roster as
+compact rows, and style-free and roster-free packets remain valid. Enemy rows carry an
+optional eleventh element, the break-window progress of a keeper under fire. Projectiles have constant velocity, so repeated
 motion is reconstructed from server time without resending every coordinate.
 A complete baseline every two seconds, dimension changes, reconnects, and reset
 signals after backpressure prevent stale shots. The client coalesces snapshots
@@ -60,6 +69,49 @@ island geometry live beside it, and `threatOf()` and `threatOfTier()` turn a lev
 or creature tier into a safe/even/hard/deadly band that the map, the objective board and the
 enemy plates all colour from. Adding a biome is adding a row: nothing in the information layer
 hardcodes a place.
+
+The realm is one disc of radius 150 centred on the island. Inside radius 86 is the
+original island, unchanged: the same 1,300-candidate prop stream, the same heights,
+the same five places, the same pacing. Beyond it, seven biomes tile the ring by
+bearing, arranged as two level ladders that rise from the Hearth side and meet at
+the Ashfall behind the Crown, so a traveler mid-band always has three places they
+could go. `shared/biomes.ts` is one row per biome: terrain shape, ground and fog
+colour, scenery mix and density, ambient chord, resident keeper, and the ecology
+that populates it. `groundHeight()` blends the island into a biome across a 22-unit
+seam, so no coordinate in the old world moved. `water` and `wall` are impassable
+prop kinds, so the outer ring has geography rather than scattered obstacles.
+
+Every road in the realm is one table of segments: the two original Hearth roads
+extended to an inner ring at radius 80, seven spokes out to a ring road at radius
+116 that passes through the centre of all seven biomes, and three one-way passes
+that make the walk home shorter than the walk out. The world, the minimap and the
+atlas all draw that table, and `makeProps()` keeps scenery off it, so a new road is
+a new row.
+
+The spawn table is an ecology. Each place lists packs rather than slots; a pack is
+picked by weight, lands together, and travels together — anchored, patrolling
+between the place’s anchors, or wandering. Creatures leash to their pack rather than
+to a fixed point, which is why the same clearing holds a different fight an hour
+later. The island’s four rows keep their original counts, weights and spread exactly.
+Phase 0’s budget guarantees are unchanged: solo counts and respawn pacing as before,
+and with two or more travelers present a place is topped up to its base at once and
+trickled toward its target over the next interval.
+
+Behaviour is data. A creature keeps one attack pattern so the bullets stay readable;
+its `behaviour` decides the shape of the fight, and therefore which creature in a
+mixed pack has to die first: chargers commit to a rush on the windup, kiters hold a
+range and punish standing still, bulwarks turn a shielded front toward you and have
+to be flanked, splitters halve when they fall, summoners call while their brood is
+dead, anchors make the floor unsafe, and lanterns speed up everything inside their
+light and are joined to it by a visible line.
+
+Twelve setpiece anchors sit in the outer ring. Which of the five shapes — shrine,
+ambush, caravan, lantern circle, nest — stands at each is drawn from the realm seed,
+so the same landmark is a different encounter in the next realm. Events are a table
+of five in three shapes: a siege holds one spot, a tide lands each wave further out
+than the last, and a procession walks a light home and is lost if the light falls.
+Every event raises a beam, puts a counting icon on the atlas, and announces itself by
+name and place.
 
 `shared/progression.ts` owns the journey plan, region recommendations, contract
 rewards, chapter caches, and navigation targets. The client uses it for the HUD,
@@ -150,6 +202,31 @@ modifier, loot, and best-time goals. Depth and modifier health factors compose w
 group scaling. Floor hazards transmit fixed positions and detonation times, never
 retarget during their 1.65-second warning, and resolve damage exactly once.
 Dodge immunity, sanctuary, and armor apply; the owning boss's death clears hazards.
+
+## Doors, instances and depth
+
+A dungeon template is the kind of place a door leads to; an instance is a template
+plus a seed. `shared/layout.ts` generates the layout from the instance id and nothing
+else — three to six chambers plus one or two optional side rooms and, sometimes, one
+secret alcove, joined by axis-aligned corridors — so a layout never travels over the
+wire and two people standing in the same instance are standing in the same place.
+`inBounds()` and the minimap read that layout, which is why an instance can be any
+shape; shots stop at its walls. The altar pacing is untouched: one altar per chamber,
+cleared in order, health and light restored, a tonic, then the next altar when the
+group is ready. Generation changes the path between altars, never the contract. The
+keeper’s chamber is authored and much larger than a fighting chamber, because a boss
+deserves a stage.
+
+Six templates only ever fall in the world, one per creature family, so every level
+band has a door of its own. A creature drops one on a per-family chance defined
+beside its template; the door stands open for eighty seconds with a beam, a world
+label, an atlas icon and a chat line naming the place. Anyone may enter while it is
+open. **The instance outlives the portal**: people already inside are never evicted,
+and expiry applies to empty instances only, exactly as the original sixty-second rule
+did. Any door may be opened at depth one to five from the rally board, using the same
+scaling and the same modifier rotation, with shards and gold scaling to match; a
+traveler may open at most one depth above their own best clear of that template, and
+late arrivals qualify independently. Elder depths stay capped at twelve.
 
 ## Bags and item management
 
@@ -300,6 +377,20 @@ The minimap updates at 2 Hz; network snapshots remain 10 Hz. No image downloads,
 third-party font fetches, or model inference are needed to play.
 
 ## Scale boundary
+
+A realm holds at most **24 live dungeon instances** and at most **6 of any one
+template**, and at most **8 dropped doors** stand open at once. Only empty instances
+are ever evicted to make room, and the realm's current story instances never are, so
+their Hearth portals always work. With the full cap open and populated the server
+reports 0.36 ms of tick work and 23.7 MB of heap; `LOAD_INSTANCES=1 npm run test:load`
+reproduces it and `/api/health` reports live instances, open doors, creature count
+and heap.
+
+Creature population is bounded by the ecology: eleven places, each with a base
+count and a per-place cap, which puts the resting overworld at roughly 150 creatures
+and a fully crowded one at roughly 350. `LOAD_ZONE=<place> npm run test:load` walks
+twenty clients out to any place along its spoke road and asserts that its population
+never sits below its base for longer than five seconds.
 
 A process admits up to 12 realms, each with 48 travelers. This is a capacity
 ceiling, **not a benchmark of 576 simultaneous players**. One full realm is covered

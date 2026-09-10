@@ -37,8 +37,22 @@ Do not delete that database unless you intend to erase all accounts.
 - **Three callings:** the Arcanist’s projectile-erasing nova, the Wayfarer’s
   piercing volley, and the Sentinel’s protective healing ward. Every class has
   ranged primary fire and an invulnerable dodge.
-- **A shared 3D realm:** five regions, three wardens, three shared dungeon maps,
-  and an Ashen Sovereign raid unlocked by the realm’s three warden victories.
+- **A shared 3D realm:** an island of five regions with three wardens and an Ashen
+  Sovereign, wrapped by an outer ring of seven biomes for levels 15 to 40 — the
+  Drowned Coast, the Petrified Orchard, the Salt Flat, the Shattered Observatory,
+  the Bone Marsh, the Glacier of Fused Glass, and the Ashfall behind the Crown. A
+  ring road, seven spokes and three one-way passes home join them. Each biome has
+  its own ground, weather, ambient chord, resident keeper, and creatures that
+  travel in packs rather than standing where they spawned.
+- **Doors everywhere:** nine dungeon templates, generated from a seed every time —
+  three to six chambers, optional side rooms, one secret. Creatures drop doors:
+  hunt a family long enough and one of its own opens in the world for eighty
+  seconds, announced by name and place, open to anybody who runs there. Any door
+  can be opened at depth one to five for harder fights and better rewards.
+- **Twelve setpieces and five events:** shrines, ambush hollows, a treasure
+  caravan, lantern circles and splitter nests, drawn from the realm seed so the
+  same landmark is a different fight in the next realm; a wandering star, a
+  meteor, a cinder tide, and two processions that have to be walked home.
 - **Bullet-hell combat:** aimed shots, fans, rings, spirals, and layered bursts.
   Local movement, aim, dodge, and firing feedback respond immediately. Enemies
   commit to visible attack windups; bosses alternate patterns through three phases
@@ -59,14 +73,32 @@ Do not delete that database unless you intend to erase all accounts.
   in the world. The HUD, journal, and map agree on your next task, destination,
   progress, reward, preparation, and next unlock. Real-time seal status keeps the
   compass away from fallen wardens.
-- **Progression:** 20 levels, eight chapters with guaranteed equipment caches,
+- **Progression:** 30 levels, eight chapters with guaranteed equipment caches,
   gold, four loot rarities, three equipment slots, an 18-slot satchel, a 48-slot
-  account vault, a shop, and gear tempering through tier 6. The first chapter
-  supplies armor and a charm; a warden chapter supplies a T3 Astral weapon.
+  account vault, a shop, and gear tempering through tier 8. Reaching twenty costs
+  exactly what it always did; reaching thirty costs about three times as much,
+  which is the length of the outer ring. The first chapter supplies armor and a
+  charm; a warden chapter supplies a T3 Astral weapon.
+- **Mastery:** a dash that begins inside a fifth of a second of a shot that would
+  have hit refunds light and comes back sooner; enough damage during a keeper's
+  windup cancels the pattern and staggers it, and its core brightens as you get
+  close; every keeper's back takes more damage than its front; a shielded creature
+  has to be flanked; and kill chains keep climbing past forty per cent.
+- **Attunements:** seven draughts, one per stat, that keepers pour freely. Drinking
+  one raises that stat permanently for this life, up to a cap that grows with your
+  level. They are lost with the life, like everything else that matters.
+- **The realm has a life:** every creature anyone puts down counts toward taking
+  its place back, and the atlas draws it as a ring. Break the third seal and the
+  realm musters — the sky turns, everyone gets a minute and a free road to the
+  Crown, and when the Sovereign falls the realm closes with a recap and reopens on
+  a fresh seed. Graves stand where travelers fell, with their name and what took
+  them. Walk with someone and you share every kill in the same dimension, at any
+  distance. `K` opens the board that shows all of it.
 - **Hunts and builds:** a guaranteed third-kill upgrade, repeatable hunts with
   guaranteed Astral weapons, armor, and charms plus explicit XP rewards, kill
-  chains worth up to 40% bonus XP, six equipment
-  effects, and a signature relic to pursue from each boss. Pick up gear with X
+  chains worth up to 70% bonus XP, twelve equipment
+  effects, seven named gear sets, twenty-two signature relics to pursue — one per
+  keeper — and six account-wide things embers can buy, none of which buys power. Pick up gear with X
   and equip useful pickups with G, or use the persistent satchel slots.
 - **Bags beside the HUD:** eight-slot personal containers gather nearby rewards.
   Six cloth bag colors show their best remaining item, from Weathered brown to
@@ -148,6 +180,7 @@ Do not delete that database unless you intend to erase all accounts.
 | Click a name on the map (M)  | Travel to that traveler from the Hearth            |
 | I                            | Toggle autofire                                    |
 | B / M / J                    | Satchel / atlas / objective board                  |
+| K                            | Realm board: liberation, open doors, who is where  |
 | C                            | Tap for the bestiary, hold to read nearby plates   |
 | N                            | Minimap range: 60 / 120 / 240 metres               |
 | Click a place on the map (M) | Pin it; the compass and minimap follow the pin     |
@@ -212,6 +245,16 @@ npm run test:expeditions
 npm run test:journey
 npm run test:depth
 LOAD_EXPEDITION=eclipse LOAD_SECONDS=60 npm run test:load
+```
+
+Any place in the ecology can be crowded and watched, not only the meadow; the
+clients walk out along that biome's spoke road the way a player would, and the
+budget must hold its population at or above its base:
+
+```sh
+LOAD_ZONE=marsh LOAD_SECONDS=60 npm run test:load
+LOAD_INSTANCES=1 LOAD_PLAYERS=24 npm run test:load   # fills the instance cap
+CAPTURES=1 npx playwright test e2e/captures.spec.ts  # playtest images, frame time
 ```
 
 Browser tests use installed Google Chrome on macOS, or Playwright Chromium

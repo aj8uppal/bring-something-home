@@ -1,5 +1,8 @@
 import { createCharacter, makeItem, stats } from '../server/model.js';
 import { DUNGEONS, distance, zoneAt } from '../shared/content.js';
+import { BIOME_BEARINGS, GATE_RING_RADIUS, RING_RADIUS, placeById } from '../shared/places.js';
+import { pointOn } from '../shared/world.js';
+import { TEMPLATES } from '../shared/templates.js';
 import { ECOLOGY } from '../shared/biomes.js';
 /** Self-contained load test. Creates a disposable database and server; never uses player accounts. */
 import { spawn } from 'node:child_process';
@@ -12,12 +15,31 @@ import { Decoder } from '../shared/protocol.js';
 import { Store } from '../server/database.js';
 import type { Snapshot } from '../shared/types.js';
 const expedition = process.env.LOAD_EXPEDITION === 'eclipse';
-/** LOAD_ZONE=meadow keeps every client fighting inside Cindermeadow and watches the creature
- * count, which the spawn budget must hold at or above the zone's base within five seconds. */
-const meadow = process.env.LOAD_ZONE === 'meadow';
+/** LOAD_INSTANCES=1 opens the realm's whole instance cap at once and reports what it costs. */
+const instances = process.env.LOAD_INSTANCES === '1';
+/**
+ * LOAD_ZONE=<place> keeps every client fighting inside one place and watches the creature
+ * count, which the spawn budget must hold at or above that place's base within five seconds.
+ * Any place in the ecology works: `meadow` is the original case, `marsh` is a biome.
+ */
+const zoneId = process.env.LOAD_ZONE;
+const zone = ECOLOGY.find((z) => z.place === zoneId);
+if (zoneId && !zone) throw new Error(`LOAD_ZONE=${zoneId} is not a place in the ecology.`);
+const meadow = !!zone;
 const count = Math.max(1, Math.min(48, Number(process.env.LOAD_PLAYERS || (meadow ? 20 : 48)))),
   seconds = Math.max(5, Number(process.env.LOAD_SECONDS || 20));
-const meadowBase = ECOLOGY.find((z) => z.place === 'meadow')!.baseCount;
+const meadowBase = zone?.baseCount ?? 0;
+/** Where the herd gathers: the place's hunting ground, or its first pack anchor. */
+const heart = zone ? (placeById(zone.place)?.hunt ?? zone.anchors[0]) : { x: -4, z: -12 };
+/**
+ * How the herd gets there. An outer biome is a hundred units out, so the clients walk the
+ * spoke road the same way a player would: out to the gate ring, along the spoke, then in.
+ */
+const bearing = zone ? BIOME_BEARINGS[zone.place as keyof typeof BIOME_BEARINGS] : undefined;
+const approach: { x: number; z: number }[] =
+  bearing === undefined
+    ? [heart]
+    : [pointOn(bearing, GATE_RING_RADIUS), pointOn(bearing, RING_RADIUS), heart];
 const dir = mkdtempSync(join(tmpdir(), 'emberwilds-load-')),
   path = join(dir, 'load.sqlite'),
   store = new Store(path);
@@ -62,7 +84,9 @@ const meadowSamples: number[] = [],
 let deficitRun = 0,
   longestDeficit = 0,
   minMeadow = Infinity;
-let stopped = false;
+let settled = false,
+  settledAt = 0;
+const began = Date.now();
 try {
   let started = false;
   for (let i = 0; i < 100; i++) {
@@ -97,7 +121,7 @@ try {
           latest.set(index, m);
           if (meadow)
             for (const e of m.enemies)
-              if (!e.boss && zoneAt(e.x, e.z).id === 'meadow') windowIds.add(e.id);
+              if (!e.boss && zoneAt(e.x, e.z).id === zone!.place) windowIds.add(e.id);
           if (wire.roster) rosterBytes += JSON.stringify(wire.roster).length;
           peakBullets = Math.max(peakBullets, m.bullets.length);
           peakEnemies = Math.max(peakEnemies, m.enemies.length);
@@ -113,7 +137,9 @@ try {
           classId: index % 3 === 0 ? 'sentinel' : index % 3 === 1 ? 'arcanist' : 'ranger',
         }),
       );
-      let ticks = 0;
+      let ticks = 0,
+        leg = 0,
+        was = { x: 0, z: 22 };
       intervals.push(
         setInterval(() => {
           if (ws.readyState !== WebSocket.OPEN || !state) return;
@@ -123,19 +149,31 @@ try {
           let x = 0,
             z = 0;
           if (meadow) {
-            // Hold a ring around the meadow's heart so the whole zone stays observed.
-            const hx = -4 + Math.cos(index) * 7,
-              hz = -12 + Math.sin(index) * 6;
-            const dx = hx - p.x,
-              dz = hz - p.z,
+            // Walk the road out, then hold a ring around the place's heart so the whole of
+            // it stays observed. A step that makes no progress veers, the way a person does.
+            while (
+              leg < approach.length - 1 &&
+              Math.hypot(p.x - approach[leg].x, p.z - approach[leg].z) < 8
+            )
+              leg++;
+            const last = leg === approach.length - 1;
+            const target = last
+              ? { x: heart.x + Math.cos(index) * 7, z: heart.z + Math.sin(index) * 6 }
+              : approach[leg];
+            const dx = target.x - p.x,
+              dz = target.z - p.z,
               d = Math.hypot(dx, dz);
-            if (p.safe || d > 3) {
-              x = dx / (d || 1);
-              z = dz / (d || 1);
+            if (!last || p.safe || d > 3) {
+              const stuck = Math.hypot(p.x - was.x, p.z - was.z) < 0.4;
+              const veer = stuck ? (ticks % 60 < 30 ? 0.9 : -0.9) : 0;
+              const a = Math.atan2(dz, dx) + veer;
+              x = Math.cos(a);
+              z = Math.sin(a);
             } else {
               x = Math.sin(ticks * 0.05 + index) * 0.6;
               z = Math.cos(ticks * 0.045 + index) * 0.6;
             }
+            if (ticks % 6 === 0) was = { x: p.x, z: p.z };
           } else if (p.safe || p.z > -30) {
             z = -1;
             x = -Math.sign(p.x) * 0.15;
@@ -211,10 +249,22 @@ try {
   );
   const sampler = setInterval(() => {
     if (!meadow) return;
+    // The herd has to get there first. A place a hundred units from the Hearth is a
+    // fifteen-second walk, and an empty place nobody has reached yet is not a deficit.
+    const arrived = [...latest.values()].filter(
+      (s) => zoneAt(s.self.x, s.self.z).id === zone!.place,
+    ).length;
+    if (!settled && arrived < Math.ceil(count * 0.6)) {
+      windowIds.clear();
+      return;
+    }
+    if (!settledAt) settledAt = Math.round((Date.now() - began) / 1000);
+    settled = true;
     const ids = new Set<string>();
     for (const s of latest.values())
       for (const e of s.enemies)
-        if (!e.boss && e.dimension === 'wilds' && zoneAt(e.x, e.z).id === 'meadow') ids.add(e.id);
+        if (!e.boss && e.dimension === 'wilds' && zoneAt(e.x, e.z).id === zone!.place)
+          ids.add(e.id);
     const present = windowIds.size;
     windowIds.clear();
     meadowSamples.push(present);
@@ -225,16 +275,37 @@ try {
   }, 1000);
   intervals.push(sampler);
   await new Promise((r) => setTimeout(r, seconds * 1000));
+  if (instances) {
+    // Open the cap: every template, several instances of each, all populated at once.
+    await fetch(`http://127.0.0.1:${port}/api/health`);
+    for (let i = 0; i < 40; i++) {
+      for (const ws of clients)
+        if (ws.readyState === WebSocket.OPEN) {
+          ws.send(JSON.stringify({ type: 'action', action: 'recall' }));
+          ws.send(
+            JSON.stringify({
+              type: 'action',
+              action: 'rally',
+              id: TEMPLATES[(i + clients.indexOf(ws)) % TEMPLATES.length].id,
+            }),
+          );
+        }
+      await new Promise((r) => setTimeout(r, 250));
+    }
+    await new Promise((r) => setTimeout(r, 4000));
+  }
   const health = (await (await fetch(`http://127.0.0.1:${port}/api/health`)).json()) as {
     tickMs: number;
     players: number;
+    instances?: number;
+    heapMb?: number;
   };
   latencies.sort((a, b) => a - b);
   const p95 = latencies[Math.floor(latencies.length * 0.95)] || 0;
   console.log(
     JSON.stringify(
       {
-        mode: expedition ? 'elder-expedition' : meadow ? 'cindermeadow' : 'wilds',
+        mode: expedition ? 'elder-expedition' : meadow ? `place:${zone!.place}` : 'wilds',
         players: count,
         joined: welcomes,
         durationSeconds: seconds,
@@ -247,16 +318,21 @@ try {
         peakBullets,
         peakEnemies,
         errors,
+        ...(instances
+          ? { liveInstances: health.instances ?? 0, serverHeapMb: health.heapMb ?? 0 }
+          : {}),
         ...(meadow
           ? {
-              meadowBase,
-              meadowInstantMin: minMeadow,
-              meadowInstantMean: Number(
+              place: zone!.place,
+              settledAfterSeconds: settledAt,
+              placeBase: meadowBase,
+              instantMin: minMeadow,
+              instantMean: Number(
                 (
                   meadowInstant.reduce((a, b) => a + b, 0) / Math.max(1, meadowInstant.length)
                 ).toFixed(1),
               ),
-              meadowPresentPerSecond: meadowSamples.slice(-30),
+              presentPerSecond: meadowSamples.slice(-30),
               longestDeficitSeconds: longestDeficit,
             }
           : {}),
@@ -270,7 +346,7 @@ try {
   // The budget checks every five seconds, so no deficit may last longer than that.
   if (meadow && longestDeficit > 5)
     throw new Error(
-      `Cindermeadow sat below ${meadowBase} creatures for ${longestDeficit}s: ${meadowSamples.join(',')}`,
+      `${zone!.place} sat below ${meadowBase} creatures for ${longestDeficit}s: ${meadowSamples.join(',')}`,
     );
 } finally {
   for (const timer of intervals) clearInterval(timer);

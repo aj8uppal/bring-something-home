@@ -99,6 +99,11 @@ const server = createServer(async (req, res) => {
           realms: realms.size,
           players: sockets.size,
           tickMs: Math.round(tickMs * 100) / 100,
+          // Scale boundaries worth watching: live instances across every realm, and heap.
+          instances: [...realms.values()].reduce((n, r) => n + r.dungeons.runs.size, 0),
+          portals: [...realms.values()].reduce((n, r) => n + r.portals.size, 0),
+          creatures: [...realms.values()].reduce((n, r) => n + r.enemies.size, 0),
+          heapMb: Math.round(process.memoryUsage().heapUsed / 1e5) / 10,
           uptime: Math.floor(process.uptime()),
         });
         return;

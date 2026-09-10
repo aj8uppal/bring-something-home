@@ -1,4 +1,4 @@
-import { DUNGEONS, ENEMIES, GATE, QUESTS, distance } from './content.js';
+import { DUNGEONS, ENEMIES, GATE, MAX_TIER, QUESTS, distance } from './content.js';
 import { DUNGEON_PLACES, WANDERING_STAR, WILDS } from './places.js';
 import { legacyOf, MAX_DEPTH } from './endgame.js';
 import { relicChase } from './chase.js';
@@ -47,19 +47,31 @@ export const CHAPTER_UNLOCKS = [
   'Push to depth 12, complete the nine relics, and improve your best times',
 ];
 
+/**
+ * The hunt ladder. Every second round moves one place further out, and the ladder now runs
+ * all the way around the ring rather than stopping at the Crown — but never past a band the
+ * traveler could not survive, so a level 10 hunt is never in the Ashfall.
+ */
+export const HUNT_LADDER = REGIONS;
 export function huntContract(c: Character) {
   const round = c.huntRound ?? 0;
-  const tier = Math.min(4, 1 + Math.floor(round / 2));
+  let reach = 0;
+  HUNT_LADDER.forEach((region, i) => {
+    if (region.level <= c.level + 4) reach = i;
+  });
+  const index = Math.max(0, Math.min(HUNT_LADDER.length - 1, Math.floor(round / 2), reach));
+  const region = HUNT_LADDER[index];
+  const tier = ENEMIES[region.kind].tier;
   return {
     round: round + 1,
     kills: c.huntKills ?? 0,
     target: Math.min(18, 8 + round * 2),
     tier,
     slot: (['weapon', 'armor', 'charm'] as const)[round % 3],
-    rewardTier: tier + 1,
+    rewardTier: Math.min(MAX_TIER, tier + 1),
     gold: tier * 25,
     xp: tier * 100 + Math.min(8, round) * 25,
-    region: REGIONS[tier - 1],
+    region,
   };
 }
 

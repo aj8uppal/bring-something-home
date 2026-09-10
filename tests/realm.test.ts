@@ -1,8 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../server/database.js';
-import { BUDGET_INTERVAL, MUSTER_SECONDS, Realm } from '../server/realm.js';
-import { ECOLOGY } from '../shared/biomes.js';
+import { BREAK_POINT, BUDGET_INTERVAL, MUSTER_SECONDS, Realm } from '../server/realm.js';
+import { ECOLOGY, LIBERATION_QUOTA } from '../shared/biomes.js';
 import { templateOf } from '../shared/instances.js';
 import { layoutFor } from '../shared/layout.js';
 import { WORLD_EVENTS } from '../shared/events.js';
@@ -761,4 +761,157 @@ test('the realm reports living overworld bosses so a distant fight shows on the 
   assert.equal(listed().length, 1);
   realm.killEnemy(warden, [p]);
   assert.equal(listed().length, 0);
+});
+
+test('liberation counts every kill in a place and its thresholds change the place', () => {
+  const { realm, p, store } = setup();
+  try {
+    p.x = -46;
+    p.z = 90;
+    const quota = LIBERATION_QUOTA;
+    const kill = (n: number) => {
+      for (let i = 0; i < n; i++) {
+        const e = realm.spawn('brineclaw', p.x, p.z, 'wilds', false, 'coast');
+        realm.killEnemy(e, [p]);
+      }
+    };
+    kill(Math.ceil(quota * 0.34));
+    assert.equal(realm.liberationStages.get('coast'), 1);
+    kill(Math.ceil(quota * 0.34));
+    assert.equal(realm.liberationStages.get('coast'), 2);
+    // A second keeper comes out to meet the realm at two thirds.
+    assert.ok(
+      [...realm.enemies.values()].some((e) => e.kind === 'tidechoir' && e.name.includes('roused')),
+    );
+    const embers = p.profile.embers;
+    kill(Math.ceil(quota * 0.34));
+    assert.equal(realm.liberationStages.get('coast'), 3);
+    assert.ok(p.profile.embers > embers, 'the realm pays everyone standing there');
+    const state = realm.liberationStates().find((l) => l.place === 'coast')!;
+    assert.equal(state.stage, 3);
+    assert.ok(state.kills >= quota);
+  } finally {
+    store.close();
+  }
+});
+
+test('a party shares every kill in the dimension, at any distance, and only its own', () => {
+  const { realm, p, store, c } = setup();
+  try {
+    const friend = realm.add(store.create('Walker').profile, 'ranger', () => {});
+    const stranger = realm.add(store.create('Stranger').profile, 'sentinel', () => {});
+    for (const q of [p, friend, stranger]) {
+      q.x = 0;
+      q.z = -40;
+    }
+    realm.action(friend.profile.id, 'party', p.profile.id);
+    assert.equal(friend.party, p.profile.id);
+    // Both walk far apart; the party still shares, the stranger does not.
+    friend.x = 60;
+    friend.z = -60;
+    stranger.x = 60;
+    stranger.z = -61;
+    const e = realm.spawn('watcher', 0, -42, 'wilds');
+    e.contributors.set(p.profile.id, realm.time);
+    realm.killEnemy(e, [p, friend, stranger]);
+    assert.equal(c.kills, 1);
+    assert.equal(friend.profile.character!.kills, 1, 'a party member shares at any distance');
+    assert.equal(stranger.profile.character!.kills, 0, 'a stranger stood beside them does not');
+    realm.action(friend.profile.id, 'party', '');
+    assert.equal(friend.party, undefined);
+  } finally {
+    store.close();
+  }
+});
+
+test('a traveler who falls leaves a marker where they went down', () => {
+  const { realm, p, store } = setup();
+  try {
+    p.x = 12;
+    p.z = -18;
+    realm.die(p, 'The Rootbound');
+    assert.equal(realm.graveMarkers.length, 1);
+    const grave = realm.graveMarkers[0];
+    assert.equal(grave.x, 12);
+    assert.equal(grave.z, -18);
+    assert.equal(grave.cause, 'The Rootbound');
+    assert.equal(grave.dimension, 'wilds');
+  } finally {
+    store.close();
+  }
+});
+
+test('a perfect dodge is decided by the server against a shot that would have landed', () => {
+  const { realm, p, c } = setup();
+  p.x = 0;
+  p.z = -12;
+  p.invulnerableUntil = 0;
+  c.mp = 10;
+  // Nothing incoming: an ordinary dodge, full cooldown, no light back.
+  realm.action(p.profile.id, 'dash');
+  assert.ok(Math.abs(p.cooldowns.dash - (realm.time + 2.2)) < 1e-6);
+  assert.equal(c.mp, 10);
+  p.cooldowns.dash = 0;
+  // A shot on its way in: the same dash is perfect.
+  realm.shot({ x: -6, z: -12, dimension: 'wilds' }, 0, 40, 20, 'e', false, 2, '#fff', 0.3);
+  realm.action(p.profile.id, 'dash');
+  assert.ok(p.cooldowns.dash < realm.time + 1.5, 'a perfect dodge comes back sooner');
+  assert.ok(c.mp > 10, 'and returns light');
+  assert.equal(p.perfectDodges, 1);
+});
+
+test('a keeper breaks when it takes enough damage during a windup, and its back is its core', () => {
+  const { realm, p, c } = setup();
+  p.x = 0;
+  p.z = -26;
+  const boss = realm.spawn('archivist', 0, -30, 'wilds');
+  boss.nextFire = realm.time + 5;
+  // A shot into its front is worth face value; the same shot into its back is worth more.
+  const shoot = (fromZ: number, angle: number) => {
+    const before = boss.hp;
+    realm.shot(
+      { x: 0, z: fromZ, dimension: 'wilds' },
+      angle,
+      90,
+      100,
+      p.profile.id,
+      true,
+      1,
+      '#fff',
+      0.3,
+    );
+    realm.step();
+    return before - boss.hp;
+  };
+  boss.angle = -Math.PI / 2;
+  const front = shoot(-26, -Math.PI / 2);
+  boss.angle = -Math.PI / 2;
+  const back = shoot(-34, Math.PI / 2);
+  assert.ok(front > 0 && back > front * 1.2, `core ${back} vs front ${front}`);
+
+  // The break window: enough damage while it is winding up cancels the pattern. Its own
+  // patch of ground, so the shot cannot be eaten by the keeper from the first half.
+  realm.enemies.delete(boss.id);
+  p.x = 30;
+  p.z = -26;
+  const fresh = realm.spawn('archivist', 30, -30, 'wilds');
+  fresh.nextFire = realm.time + 0.5;
+  realm.step();
+  assert.ok(fresh.telegraph > 0 && fresh.aiming, 'it is winding up');
+  fresh.windupDamage = fresh.maxHp * (ENEMIES.archivist.breakPoint ?? BREAK_POINT) * 0.99;
+  realm.shot(
+    { x: 30, z: -26, dimension: 'wilds' },
+    -Math.PI / 2,
+    90,
+    100,
+    p.profile.id,
+    true,
+    1,
+    '#fff',
+    0.3,
+  );
+  realm.step();
+  assert.ok(fresh.staggerUntil! > realm.time, 'enough damage during the windup breaks it');
+  assert.equal(fresh.telegraph, 0);
+  void c;
 });

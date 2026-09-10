@@ -92,5 +92,14 @@ return are skill improvement, interesting builds, cooperative moments, and
 uncollected relics. There are no paid random rewards, punitive daily streaks, or
 invented scarcity in this release.
 
+Everything added since — attunement draughts, gear sets, dropped doors, depth
+dials, the weekly season, liberation, and the account-wide things embers buy —
+follows the same rule. Embers are earned by playing and buy room, a quicker
+rebuild, and a name: a wider satchel, a second vault page, a starting kit, a
+title, a banner and a cloak colour. None of them buys power, none of them is sold,
+and nothing anywhere is gated behind a streak or a wallet. Attunements are lost
+with the life on purpose: they are the one reward that would break permadeath if
+it could be banked, so it cannot be.
+
 See [validation](VALIDATION.md) for technical evidence and [deployment](DEPLOYMENT.md)
 for the actual operational boundary.
