@@ -7,7 +7,10 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # The checks grew with the world: balance runs 66 boss encounters rather than 27,
+    # expeditions 33 runs across nine templates, and the journey now walks a realm three
+    # times the size. Fifteen minutes stopped being enough during 1.5.0's browser suite.
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
