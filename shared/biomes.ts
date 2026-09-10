@@ -44,6 +44,19 @@ export interface Biome {
   /** The resident boss and how long it stays dead. */
   boss: { kind: string; respawn: number };
 }
+/**
+ * How many creatures a realm has to put down before a place is its own again.
+ *
+ * Thresholds along the way wake the biome's setpieces for good, surface a second keeper,
+ * and finally lift the fog. The world map draws it as a ring, so an arriving traveler can
+ * see where the fight is before they have spoken to anybody.
+ */
+export const LIBERATION_QUOTA = 220;
+export const LIBERATION_STEPS = [0.34, 0.67, 1] as const;
+export function liberationStage(kills: number, quota = LIBERATION_QUOTA) {
+  const share = kills / quota;
+  return LIBERATION_STEPS.filter((step) => share >= step).length;
+}
 
 const at = (id: BiomeId, tangent: number, radial: number): Vec => {
   const p = PLACE_BY_ID.get(id)!,

@@ -35,6 +35,8 @@ export interface Item {
   description: string;
   trait?: import('./combat.js').Trait;
   relicId?: string;
+  /** An attunement draught. Collecting one drinks it; it never enters the satchel. */
+  attune?: string;
   locked?: boolean;
 }
 export interface Character {
@@ -56,6 +58,8 @@ export interface Character {
   huntKills?: number;
   /** Overworld zones this life has entered; the first arc advances on zone entry. */
   visited?: string[];
+  /** Draughts drunk by this traveler, by kind. Lost with the life, exactly as levels are. */
+  attunements?: Record<string, number>;
   startedAt: number;
 }
 export interface Grave {
@@ -79,6 +83,12 @@ export interface Profile {
   discovered: string[];
   createdAt: number;
   trackedRelic?: string;
+  /** Account-wide things embers have bought. None of them buys power. */
+  perks?: string[];
+  /** The cloak colour a bought cloak was set to. */
+  cloak?: string;
+  /** Accounts this traveler keeps track of, by id. */
+  friends?: string[];
   /** A place or goal the player pinned; outranks the chapter goal on the compass. */
   pinned?: string;
   lastExpedition?: ExpeditionResult;
@@ -194,6 +204,10 @@ export interface PlayerState extends Vec {
 export interface RosterEntry extends Vec {
   id: string;
   name: string;
+  /** A mastery title, for accounts that bought the right to show one. */
+  title?: string;
+  /** The party this traveler is walking with, if any. */
+  party?: string;
   classId: ClassId;
   level: number;
   dimension: Dimension;
@@ -211,6 +225,8 @@ export interface EnemyState extends Vec {
   phase: number;
   telegraph: number;
   attack?: number;
+  /** How close this windup is to being broken, 0 to 1. Bosses only. */
+  breaking?: number;
 }
 export interface BulletState extends Vec {
   style?: number;
@@ -256,6 +272,26 @@ export interface RealmInfo {
   renewal?: number;
   /** Living overworld bosses and their health, so the atlas can show where the fight is. */
   bosses?: { kind: string; hp: number }[];
+  /** The realm's weather this week, and which season it is. */
+  season?: { number: number; modifier: string; name: string; description: string };
+  /** Seconds until the Crown breaks and the realm begins again, once the warning is out. */
+  ending?: number;
+}
+/** How far a place has been taken back, and what that has unlocked. */
+export interface LiberationState {
+  place: string;
+  kills: number;
+  quota: number;
+  stage: number;
+}
+/** Where somebody fell, and what took them. */
+export interface GraveMarker extends Vec {
+  name: string;
+  classId: ClassId;
+  level: number;
+  cause: string;
+  at: number;
+  dimension: Dimension;
 }
 export interface Snapshot {
   type: 'snapshot';
@@ -282,6 +318,10 @@ export interface Snapshot {
   setpieces?: import('./setpieces.js').SetpieceState[];
   /** Doors standing open in the world right now, with the time left on each. */
   portals?: PortalState[];
+  /** How far each place has been taken back. Sent with the roster once a second. */
+  liberation?: LiberationState[];
+  /** Where travelers have fallen in this realm. */
+  graves?: GraveMarker[];
   /** The setpiece the traveler is standing inside, if any. */
   setpiece?: {
     id: string;
@@ -325,6 +365,8 @@ export type Action =
   | 'track'
   | 'pin'
   | 'travel'
+  | 'party'
+  | 'friend'
   | 'upgrade';
 export type ClientMessage =
   | { type: 'join'; token: string; classId: ClassId; realm?: string }

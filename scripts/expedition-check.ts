@@ -4,7 +4,17 @@ import { Store } from '../server/database.js';
 import { Realm } from '../server/realm.js';
 import { makeItem, stats } from '../server/model.js';
 import { CLASSES, DUNGEONS, ENEMIES, distance } from '../shared/content.js';
-import { inBounds } from '../shared/world.js';
+import { canMove, inBounds } from '../shared/world.js';
+/** Whether a shot fired at this target would actually reach it, or stop at a wall. */
+function canSee(from: { x: number; z: number }, to: { x: number; z: number }, dim: string) {
+  const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
+  for (let i = 1; i <= steps; i++)
+    if (
+      !canMove(from.x + ((to.x - from.x) * i) / steps, from.z + ((to.z - from.z) * i) / steps, dim)
+    )
+      return false;
+  return true;
+}
 import { flowTo, layoutFor, nearestRoom, roomAt, type Flow } from '../shared/layout.js';
 import { ensureLegacy } from '../shared/endgame.js';
 import type { ClassId, DungeonId } from '../shared/types.js';
@@ -93,6 +103,7 @@ for (const cls of ['arcanist', 'ranger', 'sentinel'] as ClassId[]) {
         .filter((e) => e.dimension === p.dimension && e.sideRoom === undefined)
         .sort(
           (a, b) =>
+            Number(canSee(p, b, p.dimension)) - Number(canSee(p, a, p.dimension)) ||
             Number(roomOf(b) === myRoom) - Number(roomOf(a) === myRoom) ||
             distance(a, p) - distance(b, p),
         );
@@ -105,7 +116,8 @@ for (const cls of ['arcanist', 'ranger', 'sentinel'] as ClassId[]) {
       const there = layout
         ? (roomAt(layout, goal.x, goal.z) ?? nearestRoom(layout, goal))
         : undefined;
-      const arrived = !layout || (!!here && !!there && here.id === there.id);
+      const arrived =
+        !layout || (!!here && !!there && here.id === there.id && canSee(p, goal, p.dimension));
       if (layout && !arrived) {
         const key = `${there!.id}`;
         if (key !== flowKey) {

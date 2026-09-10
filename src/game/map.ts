@@ -1,6 +1,6 @@
 import { CLASSES, HAVEN } from '../../shared/content';
 import { ISLAND, propsInBox, PROPS } from '../../shared/world';
-import { WILDS_RADIUS } from '../../shared/places';
+import { PLACE_BY_ID, WILDS_RADIUS } from '../../shared/places';
 import { templateOf } from '../../shared/instances';
 import { layoutFor } from '../../shared/layout';
 import {
@@ -479,6 +479,26 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
     ctx.lineTo(bx, by);
   }
   ctx.stroke();
+  // Liberation: a ring around each place showing how much of it the realm has taken back.
+  for (const state of snapshot?.liberation ?? []) {
+    const place = PLACE_BY_ID.get(state.place);
+    if (!place || !onScreen(place, place.radius + 12)) continue;
+    const [x, y] = at(place.x, place.z);
+    const radius = place.radius * scale * 0.96;
+    if (radius < 8) continue;
+    ctx.lineWidth = large ? 3.5 : 2.5;
+    ctx.strokeStyle = '#12211f88';
+    ctx.beginPath();
+    ctx.arc(x, y, radius, 0, Math.PI * 2);
+    ctx.stroke();
+    const share = Math.min(1, state.kills / state.quota);
+    if (share > 0.002) {
+      ctx.strokeStyle = state.stage >= 3 ? '#edc48e' : place.color;
+      ctx.beginPath();
+      ctx.arc(x, y, radius, -Math.PI / 2, -Math.PI / 2 + share * Math.PI * 2);
+      ctx.stroke();
+    }
+  }
   // Place boundary arcs: the edge of a biome is a real thing to see coming.
   if (!large)
     for (const place of OVERWORLD) {
@@ -532,6 +552,14 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
   ctx.setLineDash([]);
 
   // Place names. The atlas labels every place; the minimap labels the one you are in.
+  // Graves: somebody went down here, and the realm remembers exactly where.
+  for (const grave of snapshot?.graves ?? []) {
+    if (!onScreen(grave, 4)) continue;
+    const [x, y] = at(grave.x, grave.z);
+    ctx.fillStyle = '#c9bda1aa';
+    ctx.fillRect(x - 1.5, y - 3, 3, 6);
+    ctx.fillRect(x - 3, y - 3, 6, 2);
+  }
   ctx.textAlign = 'center';
   if (large) {
     for (const place of PLACES) {

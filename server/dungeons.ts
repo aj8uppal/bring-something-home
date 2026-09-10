@@ -11,6 +11,7 @@ import { TEMPLATE_BY_ID } from '../shared/templates.js';
 import {
   type Encounter,
   EXPEDITIONS,
+  DEPTH_MODIFIERS,
   MAX_DEPTH,
   depthCap,
   MODIFIERS,
@@ -109,11 +110,13 @@ export class Dungeons {
     this.evictIdle(template);
     const seed = (this.realm.rng() * 0xffffffff) >>> 0;
     const id = instanceId(template, seed ^ ++this.seeds);
+    // Elder depths keep their original three-way rotation; ordinary doors draw from the
+    // whole table once they are opened past depth one.
     const modifier: Modifier =
       template === 'eclipse'
         ? (['iron', 'swift', 'fervor'] as const)[this.cycle++ % 3]
         : depth > 1
-          ? (['iron', 'swift', 'fervor'] as const)[(this.cycle++ + depth) % 3]
+          ? DEPTH_MODIFIERS[(this.cycle++ + depth) % DEPTH_MODIFIERS.length]
           : 'still';
     const instance: Instance = {
       id,

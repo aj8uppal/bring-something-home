@@ -38,7 +38,94 @@ export const MODIFIERS = {
     speed: 1,
     rate: 0.88,
   },
+  brittle: {
+    name: 'Brittle hearts',
+    description: 'Enemies have 15% less health and hit 15% harder.',
+    hp: 0.85,
+    damage: 1.15,
+    speed: 1,
+    rate: 1,
+  },
+  patient: {
+    name: 'Patient storm',
+    description: 'Shots travel 12% slower and come 8% more often.',
+    hp: 1,
+    damage: 1,
+    speed: 0.88,
+    rate: 0.92,
+  },
+  heavy: {
+    name: 'Heavy air',
+    description: 'Everything hits 20% harder and attacks 10% less often.',
+    hp: 1,
+    damage: 1.2,
+    speed: 1,
+    rate: 1.1,
+  },
+  relentless: {
+    name: 'Relentless',
+    description: 'Enemies attack 20% more often and have 10% less health.',
+    hp: 0.9,
+    damage: 1,
+    speed: 1,
+    rate: 0.8,
+  },
+  gale: {
+    name: 'Gale',
+    description: 'Hostile projectiles travel 18% faster.',
+    hp: 1,
+    damage: 1,
+    speed: 1.18,
+    rate: 1,
+  },
+  stonebound: {
+    name: 'Stonebound',
+    description: 'Enemies have 35% more health and attack 12% less often.',
+    hp: 1.35,
+    damage: 1,
+    speed: 1,
+    rate: 1.12,
+  },
+  keen: {
+    name: 'Keen edge',
+    description: 'Enemies hit 25% harder but have 12% less health.',
+    hp: 0.88,
+    damage: 1.25,
+    speed: 1,
+    rate: 1,
+  },
+  drifting: {
+    name: 'Drifting ash',
+    description: 'Shots are 10% slower; enemies carry 15% more health.',
+    hp: 1.15,
+    damage: 1,
+    speed: 0.9,
+    rate: 1,
+  },
 } as const;
+/** The rotation a door draws from when it is opened past depth one. */
+export const DEPTH_MODIFIERS = [
+  'iron',
+  'swift',
+  'fervor',
+  'brittle',
+  'patient',
+  'heavy',
+  'relentless',
+  'gale',
+  'stonebound',
+  'keen',
+  'drifting',
+] as const;
+/**
+ * The realm's weather this week. Drawn from the same table, applied to everything in the
+ * wilds, and announced at the Hearth: the reason to log in this week did not exist last week.
+ */
+export const SEASON_LENGTH = 7 * 24 * 60 * 60 * 1000;
+export const seasonNumber = (at = Date.now()) => Math.floor(at / SEASON_LENGTH);
+export function seasonModifier(at = Date.now()): Modifier {
+  return DEPTH_MODIFIERS[seasonNumber(at) % DEPTH_MODIFIERS.length];
+}
 export type Modifier = keyof typeof MODIFIERS;
 export function legacyOf(p: Profile) {
   return (

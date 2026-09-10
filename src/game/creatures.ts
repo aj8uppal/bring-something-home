@@ -1250,6 +1250,23 @@ export function creature(e: EnemyState) {
   if (!prototypes.has(e.kind)) prototypes.set(e.kind, build(e.kind));
   const root = prototypes.get(e.kind)!.clone(true);
   root.userData.kind = e.kind;
+  // A boss carries a core on its back: the thing that brightens when a windup is breaking,
+  // and the thing that takes more damage when you are standing behind it.
+  if (ENEMIES[e.kind].boss) {
+    const def = ENEMIES[e.kind];
+    const core = new THREE.Mesh(
+      new THREE.IcosahedronGeometry(def.radius * 0.34, 1),
+      new THREE.MeshBasicMaterial({
+        color: '#ffe6ae',
+        transparent: true,
+        opacity: 0.18,
+        depthWrite: false,
+      }),
+    );
+    core.name = 'core';
+    core.position.set(0, def.radius * 1.1, -def.radius * 0.85);
+    root.add(core);
+  }
   // Cache part references once. Clone's JSON userData intentionally contains no Object3D references.
   root.userData.parts = Object.fromEntries(
     [
@@ -1263,6 +1280,7 @@ export function creature(e: EnemyState) {
       'tail',
       'book',
       'elder-halo',
+      'core',
     ].map((name) => [name, root.getObjectByName(name)]),
   );
   return root;
@@ -1300,6 +1318,16 @@ export function animateCreature(
   if (parts.book)
     parts.book.position.y = 1.68 + (reduced ? 0 : Math.sin(t * 2) * 0.06) + windup * 0.2;
   if (parts['elder-halo'] && !reduced) parts['elder-halo'].rotation.z = t * 0.07 * (1 + e.phase);
+  const core = parts.core as THREE.Mesh | undefined;
+  if (core) {
+    // Idle: a faint mark saying where the soft side is. Under fire during a windup: a
+    // brightening you can watch, which is the whole break window with no bar anywhere.
+    const breaking = Math.max(0, Math.min(1, e.breaking ?? 0));
+    const material = core.material as THREE.MeshBasicMaterial;
+    material.opacity = 0.16 + breaking * 0.75;
+    core.scale.setScalar(1 + breaking * 0.9 + (reduced ? 0 : Math.sin(t * 5) * 0.04));
+    material.color.set(breaking > 0.6 ? '#fff6dc' : '#ffe6ae');
+  }
   if (parts.body) {
     parts.body.scale.set(1 + windup * 0.025, 1 - windup * 0.025, 1 + windup * 0.025);
     parts.body.rotation.x = -windup * 0.04;

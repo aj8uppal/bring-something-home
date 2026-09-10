@@ -3,7 +3,9 @@ import type { ClassId, Dimension, Rarity, Slot, Vec } from './types.js';
 export const VERSION = '1.4.1';
 export const TICK_RATE = 20;
 export const MAX_PLAYERS = 48;
-export const MAX_LEVEL = 20;
+export const MAX_LEVEL = 30;
+/** The highest gear tier, which the outer ring's places drop and tempering reaches. */
+export const MAX_TIER = 8;
 export const MAX_INVENTORY = 18;
 export const MAX_VAULT = 48;
 export const HAVEN = { x: 0, z: 20, radius: 12 };
@@ -251,6 +253,8 @@ export interface EnemyDef {
   prefer?: number;
   /** How much of its own health a boss must lose during one windup for the attack to break. */
   breakPoint?: number;
+  /** A boss's exposed core: shots landing outside this front arc hit it for more. */
+  weak?: { arc: number; multiplier: number };
   /** Projectile family. Kept beside the creature so a new kind never edits the realm. */
   style?: number;
   /** The place this creature belongs to, for the bestiary and the atlas. */
@@ -271,6 +275,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'ring',
     color: '#8fe3ef',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     elder: true,
     style: 9,
     lore: 'She remembers the ocean before there were shores. Every tide is an attempt to bring it back.',
@@ -288,6 +293,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'burst',
     color: '#ffbd81',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     elder: true,
     style: 8,
     lore: 'The Forgemother borrowed her flame. Pyra has crossed the dark to reclaim it.',
@@ -305,6 +311,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#d0b4ff',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     elder: true,
     style: 10,
     lore: 'In the space between stars, something listened. Now it has learned to answer.',
@@ -397,6 +404,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'ring',
     color: '#afce92',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 5,
     lore: 'The oldest tree gave up its roots to search for rain. It has found only ash.',
   },
@@ -413,6 +421,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'fan',
     color: '#efbd7f',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 6,
     lore: 'A giant cast in the heat of a dying star. Every step grinds a century to dust.',
   },
@@ -429,6 +438,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#b6a0d1',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 7,
     lore: 'It once rang the bells for evening prayers. Now it announces the end of all things.',
   },
@@ -445,6 +455,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#8ae1dd',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 7,
     lore: 'Every book was saved. Every reader was lost. The keeper sees no difference now.',
   },
@@ -461,6 +472,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'burst',
     color: '#f0ad79',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 4,
     lore: 'She forged a sun to keep her children warm. She is still trying to mend it.',
   },
@@ -477,6 +489,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#f0c991',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     style: 8,
     lore: 'The first to carry the flame. The last to let it go. A crown is just another kind of kindling.',
   },
@@ -780,6 +793,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'ring',
     color: '#8fd0cf',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.014,
     style: 7,
     home: 'coast',
@@ -798,6 +812,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'fan',
     color: '#b6ac83',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'summoner',
     summons: { kind: 'stonebark', count: 2, cooldown: 22 },
     breakPoint: 0.014,
@@ -818,6 +833,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#eee2c1',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.013,
     style: 6,
     home: 'saltflat',
@@ -836,6 +852,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#a9b5d6',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'lantern',
     aura: { radius: 20, rate: 0.75 },
     breakPoint: 0.013,
@@ -856,6 +873,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'burst',
     color: '#94ab89',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.012,
     style: 8,
     home: 'marsh',
@@ -874,6 +892,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'fan',
     color: '#bfe6ee',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.012,
     style: 9,
     home: 'glacier',
@@ -892,6 +911,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'burst',
     color: '#e0a181',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.011,
     style: 8,
     home: 'ashfall',
@@ -910,6 +930,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'fan',
     color: '#b4c489',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'summoner',
     summons: { kind: 'thornling', count: 2, cooldown: 16 },
     breakPoint: 0.016,
@@ -929,6 +950,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#9fe6de',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'lantern',
     aura: { radius: 18, rate: 0.78 },
     breakPoint: 0.015,
@@ -948,6 +970,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'ring',
     color: '#eec98d',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'summoner',
     summons: { kind: 'scarab', count: 3, cooldown: 18 },
     breakPoint: 0.015,
@@ -967,6 +990,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'ring',
     color: '#c3a8dd',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     behaviour: 'bulwark',
     guard: 0.9,
     breakPoint: 0.014,
@@ -986,6 +1010,7 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'burst',
     color: '#f0a877',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.013,
     style: 8,
     lore: 'It conducts the burning. Nobody has ever established who is singing.',
@@ -1003,13 +1028,20 @@ export const ENEMIES: Record<string, EnemyDef> = {
     pattern: 'spiral',
     color: '#8fc9d6',
     boss: true,
+    weak: { arc: 1.4, multiplier: 1.35 },
     breakPoint: 0.013,
     style: 9,
     lore: 'The service was never called off. The congregation simply stopped surfacing.',
   },
 };
+/**
+ * The cost of the next level. Unchanged through twenty, so the first two hours are exactly
+ * what they were, and then steeper: reaching thirty costs roughly three times what twenty
+ * costs today, which is the length of the outer ring rather than a formality.
+ */
 export function xpForLevel(level: number) {
-  return Math.round(50 + level * 24 + level * level * 4);
+  const early = Math.round(50 + level * 24 + level * level * 4);
+  return level <= 20 ? early : Math.round(2130 * Math.pow(1.115, level - 20));
 }
 /** The place at a point. Kept under its original name; `placeAt` is the full record. */
 export const zoneAt = placeAt;

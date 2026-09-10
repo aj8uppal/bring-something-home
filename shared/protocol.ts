@@ -47,7 +47,19 @@ type PlayerRow = [
   number,
   number,
 ];
-type EnemyRow = [string, number, number, number, number, number, number, number, number, number];
+type EnemyRow = [
+  string,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number,
+  number?,
+];
 type BulletRow = [number, number, number, number, number, number, number, string, string, number?];
 type RosterRow = [string, string, number, number, number, number, number];
 export interface Frame extends Omit<
@@ -162,6 +174,7 @@ export class Encoder {
       e.phase,
       round(e.telegraph),
       e.attack ?? 0,
+      ...(e.breaking ? ([Math.round(e.breaking * 100) / 100] as [number]) : ([] as [])),
     ]);
     const { type, self, players, bullets, roster, ...rest } = s;
     const dims = new Dimensions();
@@ -221,6 +234,7 @@ export class Decoder {
         phase: e[7],
         telegraph: e[8],
         attack: e[9],
+        ...(e[10] !== undefined ? { breaking: e[10] } : {}),
         radius: def.radius,
         boss: !!def.boss,
         dimension,

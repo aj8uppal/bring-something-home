@@ -126,6 +126,11 @@ button .icon {
   white-space: nowrap;
   letter-spacing: 0.03em;
 }
+.grave-label {
+  color: #c9bda1;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+}
 .portal-label {
   font-weight: 600;
   font-size: 12px;
@@ -4604,6 +4609,239 @@ textarea::placeholder {
   color: #94b2a5;
   font-size: 11px;
   line-height: 1.7;
+}
+.board-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 4px 0 12px;
+}
+.liberation-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.liberation {
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid #cfbe8b26;
+  border-left: 3px solid var(--place-color, #98aa76);
+  background: #16211fa8;
+}
+.liberation-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  color: #f2e5c6;
+  font:
+    14px/1.3 Georgia,
+    serif;
+}
+.liberation-head span {
+  font-size: 12px;
+  color: #d4c5a7;
+  font-variant-numeric: tabular-nums;
+}
+.liberation i {
+  display: block;
+  height: 3px;
+  margin: 6px 0 5px;
+  border-radius: 2px;
+  background: #cfbe8b1f;
+  overflow: hidden;
+}
+.liberation i b {
+  display: block;
+  height: 100%;
+  background: var(--place-color, #98aa76);
+}
+.liberation.freed {
+  border-left-color: #edc48e;
+  background: #edc48e12;
+}
+.liberation.freed i b {
+  background: #edc48e;
+}
+.liberation small {
+  color: #a9bfb2;
+  font-size: 10px;
+}
+.board-portals,
+.board-roster {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 18px;
+}
+.board-portal,
+.board-traveler {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  border-radius: 9px;
+  border: 1px solid #cfbe8b26;
+  background: #16211fa8;
+}
+.board-portal {
+  border-left: 3px solid var(--expedition-color, #8fd8d2);
+}
+.board-portal div,
+.board-traveler div {
+  flex: 1;
+}
+.board-portal strong,
+.board-traveler strong {
+  display: block;
+  color: #f2e5c6;
+  font:
+    14px/1.3 Georgia,
+    serif;
+}
+.board-portal small,
+.board-traveler small {
+  color: #a9bfb2;
+  font-size: 10px;
+}
+.portal-timer {
+  color: #edc48e;
+  font-variant-numeric: tabular-nums;
+  font-size: 13px;
+}
+.board-traveler.partied {
+  border-color: #9ae2dc66;
+  background: #9ae2dc12;
+}
+.board-traveler svg {
+  width: 18px;
+  height: 18px;
+}
+.board-setpieces {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 10px 0 18px;
+}
+.board-setpieces span {
+  padding: 5px 10px;
+  border-radius: 7px;
+  border: 1px solid var(--place-color, #cfbe8b);
+  color: #eadfc4;
+  font-size: 11px;
+}
+.notice-box.ending {
+  border-color: #e2916f;
+  background: #e2916f1c;
+  color: #f6ddc8;
+}
+.event-banner.muster {
+  border-color: #e2916f;
+  background: #e2916f22;
+}
+.perk-bench {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.perk {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #cfbe8b26;
+  background: #16211fa8;
+}
+.perk strong {
+  display: block;
+  color: #f2e5c6;
+  font:
+    15px/1.35 Georgia,
+    serif;
+}
+.perk small {
+  color: #a9bfb2;
+  font-size: 11px;
+  line-height: 1.4;
+}
+.perk.owned {
+  border-color: #edc48e55;
+  background: #edc48e14;
+}
+.draught-bench {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(210px, 1fr));
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.draught {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 12px;
+  border-radius: 9px;
+  border: 1px solid #cfbe8b26;
+  border-left: 3px solid var(--attune-color, #edc48e);
+  background: #16211fa8;
+}
+.draught strong {
+  display: block;
+  color: #f2e5c6;
+  font:
+    14px/1.3 Georgia,
+    serif;
+}
+.draught small {
+  color: #a9bfb2;
+  font-size: 10px;
+}
+.draught.capped {
+  border-left-color: #edc48e;
+  box-shadow: inset 0 0 0 1px #edc48e33;
+}
+.attune-pips {
+  /* Sits on the row's own bottom edge, so the rail keeps its height. */
+  position: absolute;
+  left: 4px;
+  right: 2px;
+  bottom: 0;
+  display: flex;
+  gap: 2px;
+  pointer-events: none;
+}
+.attune-pips i {
+  flex: 1;
+  height: 2px;
+  border-radius: 1px;
+  background: #cfbe8b26;
+}
+.attune-pips i.filled {
+  background: var(--attune-color, #edc48e);
+}
+.attune-pips.capped i {
+  background: #edc48e;
+  box-shadow: 0 0 4px #edc48e88;
+}
+.set-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 4px;
+  padding: 4px 8px;
+  border-radius: 7px;
+  border: 1px solid #edc48e55;
+  background: #edc48e14;
+  color: #f4e5c9;
+  font:
+    12px/1.3 Georgia,
+    serif;
+}
+.set-line svg {
+  width: 14px;
+  height: 14px;
 }
 .depth-dial {
   display: flex;

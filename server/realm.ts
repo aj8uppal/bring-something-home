@@ -9,7 +9,17 @@ import {
 } from '../shared/loot.js';
 import { Dungeons } from './dungeons.js';
 import { Grid } from './grid.js';
-import { depthCap, ensureLegacy, legacyOf, MAX_DEPTH, relicCost } from '../shared/endgame.js';
+import {
+  depthCap,
+  ensureLegacy,
+  MODIFIERS,
+  seasonModifier,
+  seasonNumber,
+  legacyOf,
+  masteryTitle,
+  MAX_DEPTH,
+  relicCost,
+} from '../shared/endgame.js';
 import { attackPlan } from '../shared/patterns.js';
 import {
   combatStats,
@@ -28,10 +38,9 @@ import {
   GATE_SPAWNS,
   HAVEN,
   LANDMARKS,
-  MAX_INVENTORY,
   MAX_LEVEL,
   MAX_PLAYERS,
-  MAX_VAULT,
+  MAX_TIER,
   QUESTS,
   SHOP,
   distance,
@@ -39,9 +48,17 @@ import {
   zoneAt,
 } from '../shared/content.js';
 import { canMove, inBounds, move, random, shortcutAt } from '../shared/world.js';
+import { hasPerk, PERK_BY_ID, satchelSize, vaultSize } from '../shared/perks.js';
 import { templateOf } from '../shared/instances.js';
 import { PORTAL_DROPS, TEMPLATE_BY_ID } from '../shared/templates.js';
-import { BIOMES, ECOLOGY, ECOLOGY_BY_PLACE, type Ecology } from '../shared/biomes.js';
+import {
+  BIOMES,
+  ECOLOGY,
+  ECOLOGY_BY_PLACE,
+  LIBERATION_QUOTA,
+  liberationStage,
+  type Ecology,
+} from '../shared/biomes.js';
 import { BIOME_PLACES, PLACE_BY_ID, WANDERING_STAR, type BiomeId } from '../shared/places.js';
 import { EVENT_BY_ID, WORLD_EVENTS, type EventState, type WorldEvent } from '../shared/events.js';
 import {
@@ -68,11 +85,21 @@ import type {
   PlayerState,
   Profile,
   RealmInfo,
+  GraveMarker,
+  LiberationState,
   PortalState,
   RosterEntry,
   ServerMessage,
 } from '../shared/types.js';
-import { createCharacter, grantXp, makeItem, stats } from './model.js';
+import { createCharacter, grantXp, makeAttunement, makeItem, stats } from './model.js';
+import {
+  atAttunementCap,
+  attunementCap,
+  attunementCount,
+  attunementRoll,
+  ATTUNEMENT_BY_ID,
+  ATTUNEMENT_SHARD_COST,
+} from '../shared/attunements.js';
 import type { Store } from './database.js';
 export interface Player {
   profile: Profile;
@@ -95,9 +122,12 @@ export interface Player {
   invulnerableUntil: number;
   /** Standing Oath: the next hit is absorbed once this has passed. */
   shieldReady: number;
+  perfectDodges?: number;
   cooldowns: { dash: number; ability: number; potion: number; travel: number };
   lastChat: number;
   lastNotice: number;
+  /** The party this traveler walks with. Party members share every kill in the dimension. */
+  party?: string;
 }
 interface Enemy extends EnemyState {
   homeX: number;
@@ -130,6 +160,7 @@ interface Enemy extends EnemyState {
   boostFrom?: string;
   /** Damage taken during the current windup, and how long a broken attack keeps it staggered. */
   windupDamage?: number;
+  breaking?: number;
   staggerUntil?: number;
   nextHazard?: number;
   healthScale: number;
@@ -197,6 +228,14 @@ export const PORTAL_SECONDS = 80;
 export const MAX_OPEN_PORTALS = 8;
 /** How fast a shielded creature can bring its front around, in radians per second. */
 const BULWARK_TURN = 1.2;
+/** A keeper brings its guard around more slowly than a creature does. */
+const BOSS_TURN = 0.55;
+/** How far ahead a dash has to be to count as perfect. Roughly a fifth of a second. */
+export const PERFECT_WINDOW = 0.2;
+/** How long the realm has to gather before the Crown opens. */
+export const MUSTER_SECONDS = 60;
+/** How many travelers may share one party's kills. */
+export const MAX_PARTY = 6;
 /** The widest creature in the roster, so a swept-shot query can never miss one. */
 const MAX_ENEMY_RADIUS = Math.max(...Object.values(ENEMIES).map((e) => e.radius));
 function segmentDistance(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
@@ -239,6 +278,14 @@ export class Realm {
   packs = new Map<string, Pack>();
   /** Doors standing open in the world, keyed by the instance each one leads to. */
   portals = new Map<string, Portal>();
+  /** How far each place has been taken back, and which thresholds it has crossed. */
+  liberation = new Map<string, number>();
+  liberationStages = new Map<string, number>();
+  /** Where travelers fell. The most recent forty stand in the world where they went down. */
+  graveMarkers: GraveMarker[] = [];
+  /** The realm's own clock: when the Crown broke, and when this realm begins again. */
+  season = seasonNumber();
+  endingAt = Infinity;
   zoneTargets = new Map<string, number>();
   zoneKills = new Map<string, number>();
   lastRoster = -Infinity;
@@ -267,6 +314,15 @@ export class Realm {
         : this.wardens.size === 3
           ? 'open'
           : 'sealed',
+      season: {
+        number: this.season,
+        modifier: seasonModifier(),
+        name: MODIFIERS[seasonModifier()].name,
+        description: MODIFIERS[seasonModifier()].description,
+      },
+      ...(Number.isFinite(this.endingAt)
+        ? { ending: Math.max(0, Math.ceil(this.endingAt - this.time)) }
+        : {}),
       renewal: Number.isFinite(this.resetAt) ? Math.max(0, Math.ceil(this.resetAt - this.time)) : 0,
       // At most four, once a second: enough for the atlas to show a fight in progress.
       bosses: [...this.enemies.values()]
@@ -520,7 +576,18 @@ export class Realm {
     }
     if (this.players.size >= MAX_PLAYERS)
       throw new Error('This realm is full. Choose another realm.');
-    if (!profile.character) profile.character = createCharacter(classId);
+    if (!profile.character) {
+      profile.character = createCharacter(classId);
+      // A kit left ready: rebuilding after a death is quicker for an account that paid for it.
+      if (hasPerk(profile, 'kit'))
+        for (const slot of ['weapon', 'armor', 'charm'] as const) {
+          const item = makeItem(slot, 2, 'uncommon', this.rng);
+          if (slot === 'weapon') item.icon = CLASSES[classId].icon;
+          profile.character.equipment[slot] = item;
+        }
+      profile.character.hp = stats(profile.character).maxHp;
+      profile.character.mp = stats(profile.character).maxMp;
+    }
     ensureLegacy(profile);
     const p: Player = {
       profile,
@@ -721,6 +788,28 @@ export class Realm {
       this.travel(p, itemId);
       return;
     }
+    if (action === 'party') {
+      this.party(p, itemId);
+      return;
+    }
+    if (action === 'friend') {
+      if (!itemId) return;
+      const list = new Set(p.profile.friends ?? []);
+      const target = this.players.get(itemId);
+      if (list.has(itemId)) list.delete(itemId);
+      else if (target && target !== p) list.add(itemId);
+      else return;
+      p.profile.friends = [...list].slice(0, 60);
+      this.notice(
+        p,
+        list.has(itemId)
+          ? `${target?.profile.name ?? 'They'} is on your list. You will see when they are in a realm.`
+          : 'Removed from your list.',
+        'info',
+      );
+      this.sync(p, true);
+      return;
+    }
     if (action === 'rally') {
       if (!safe) {
         this.notice(p, 'Recall to the Hearth before joining an expedition.', 'bad');
@@ -752,7 +841,15 @@ export class Realm {
       p.dashZ = norm > 0.1 ? p.input.z / norm : Math.sin(p.input.angle);
       p.dashUntil = this.time + 0.2;
       p.invulnerableUntil = this.time + 0.32;
-      p.cooldowns.dash = this.time + 2.2;
+      // A perfect dodge: a shot that was about to land, left instead. The server already
+      // knows every projectile's swept path, so nothing about this is a client's opinion.
+      const perfect = !safe && this.wouldBeHit(p, PERFECT_WINDOW);
+      p.cooldowns.dash = this.time + (perfect ? 1.35 : 2.2);
+      if (perfect) {
+        c.mp = Math.min(s.maxMp, c.mp + (hasTrait(c, 'grace') ? 12 : 6));
+        p.perfectDodges = (p.perfectDodges ?? 0) + 1;
+        this.effect('dash', p, '#eef2ff', 'PERFECT', id);
+      }
       this.effect('dash', p, cls.color, undefined, id);
       // Emberwake: the dash lays a short burning line that anything crossing it walks into.
       if (hasTrait(c, 'trail'))
@@ -848,7 +945,7 @@ export class Realm {
         if (action === 'loot-equip') {
           const item = items[index],
             old = c.equipment[item.slot];
-          if (old?.locked && c.inventory.length >= MAX_INVENTORY) {
+          if (old?.locked && c.inventory.length >= satchelSize(p.profile)) {
             this.notice(
               p,
               'Your equipped item is locked. Make satchel space to keep it before swapping.',
@@ -869,14 +966,25 @@ export class Realm {
             'good',
           );
           this.sync(p, true);
-        } else if (c.inventory.length >= MAX_INVENTORY) {
+        } else if (items[index]?.attune && action !== 'loot-all') {
+          const [draught] = items.splice(index, 1);
+          this.drink(p, draught);
+          this.updateBag(drop, items);
+          this.sync(p, true);
+        } else if (c.inventory.length >= satchelSize(p.profile) && !items.some((i) => i.attune)) {
           this.notice(p, 'Satchel full. Shift-click an item to swap gear, or drop a spare.', 'bad');
         } else {
           const collected =
             action === 'loot-all'
-              ? items.splice(0, MAX_INVENTORY - c.inventory.length)
+              ? items.splice(
+                  0,
+                  Math.max(0, satchelSize(p.profile) - c.inventory.length) +
+                    items.filter((i) => i.attune).length,
+                )
               : items.splice(index, 1);
-          c.inventory.push(...collected);
+          // Draughts are drunk where they lie; they never take a satchel slot.
+          for (const item of collected.filter((i) => i.attune)) this.drink(p, item);
+          c.inventory.push(...collected.filter((i) => !i.attune));
           for (const item of collected) this.collectRelic(p, item.relicId);
           this.updateBag(drop, items);
           this.notice(
@@ -938,7 +1046,10 @@ export class Realm {
       this.sync(p, true);
       return;
     }
-    if ((action === 'unequip' || action === 'withdraw') && c.inventory.length >= MAX_INVENTORY) {
+    if (
+      (action === 'unequip' || action === 'withdraw') &&
+      c.inventory.length >= satchelSize(p.profile)
+    ) {
       this.notice(p, 'Your satchel is full. Store or salvage an item first.', 'bad');
       return;
     }
@@ -958,7 +1069,7 @@ export class Realm {
       action === 'unequip' &&
       itemId &&
       ['weapon', 'armor', 'charm'].includes(itemId) &&
-      c.inventory.length < MAX_INVENTORY
+      c.inventory.length < satchelSize(p.profile)
     ) {
       const slot = itemId as 'weapon' | 'armor' | 'charm',
         item = c.equipment[slot];
@@ -1015,6 +1126,25 @@ export class Realm {
         `Attuned to ${known.name} depth ${depth}. Applies when your group opens a new door.`,
         'good',
       );
+    } else if (action === 'craft' && itemId?.startsWith('draught:')) {
+      // The exchange: a floor for an unlucky traveler, at a deliberately poor rate.
+      const kind = ATTUNEMENT_BY_ID.get(itemId.slice(8)),
+        legacy = ensureLegacy(p.profile);
+      if (!kind) return;
+      if (legacy.shards < ATTUNEMENT_SHARD_COST) {
+        this.notice(
+          p,
+          `${kind.name} costs ${ATTUNEMENT_SHARD_COST} star shards at the Smith.`,
+          'bad',
+        );
+        return;
+      }
+      if (atAttunementCap(c, kind.id)) {
+        this.notice(p, `${kind.label} is already at its cap for level ${c.level}.`, 'bad');
+        return;
+      }
+      legacy.shards -= ATTUNEMENT_SHARD_COST;
+      this.drink(p, { ...makeAttunement(kind.id) });
     } else if (action === 'craft') {
       const relic = BOSS_RELICS[itemId ?? ''],
         legacy = ensureLegacy(p.profile);
@@ -1026,7 +1156,7 @@ export class Realm {
         this.notice(p, 'You need more star shards. Defeat bosses and complete expeditions.', 'bad');
         return;
       }
-      if (c.inventory.length >= MAX_INVENTORY) {
+      if (c.inventory.length >= satchelSize(p.profile)) {
         this.notice(p, 'Make room in your satchel before crafting.', 'bad');
         return;
       }
@@ -1040,7 +1170,7 @@ export class Realm {
     } else if (action === 'store') {
       const i = c.inventory.findIndex((item) => item.id === itemId);
       if (i < 0) return;
-      if (p.profile.vault.length >= MAX_VAULT) {
+      if (p.profile.vault.length >= vaultSize(p.profile)) {
         this.notice(p, 'Your memory vault is full.', 'bad');
         return;
       }
@@ -1048,7 +1178,7 @@ export class Realm {
       this.notice(p, 'Stored. This memory will outlive you.', 'good');
     } else if (action === 'withdraw') {
       const i = p.profile.vault.findIndex((item) => item.id === itemId);
-      if (i < 0 || c.inventory.length >= MAX_INVENTORY) return;
+      if (i < 0 || c.inventory.length >= satchelSize(p.profile)) return;
       c.inventory.push(p.profile.vault.splice(i, 1)[0]);
     } else if (action === 'salvage') {
       const items = salvageable(c),
@@ -1072,6 +1202,20 @@ export class Realm {
       const value = salvageValue(item);
       c.gold += value;
       this.notice(p, `Salvaged for ${value} gold.`, 'good');
+    } else if (action === 'buy' && itemId?.startsWith('perk:')) {
+      const perk = PERK_BY_ID.get(itemId.slice(5));
+      if (!perk) return;
+      if (hasPerk(p.profile, perk.id)) {
+        this.notice(p, `${perk.name} is already yours.`, 'info');
+        return;
+      }
+      if (p.profile.embers < perk.cost) {
+        this.notice(p, `${perk.name} costs ${perk.cost} embers.`, 'bad');
+        return;
+      }
+      p.profile.embers -= perk.cost;
+      p.profile.perks = [...(p.profile.perks ?? []), perk.id];
+      this.notice(p, `${perk.name}. ${perk.description}`, 'good');
     } else if (action === 'buy') {
       const product = SHOP.find((q) => q.id === itemId);
       if (!product) return;
@@ -1086,7 +1230,7 @@ export class Realm {
         }
         c.potions++;
       } else if (product.slot) {
-        if (c.inventory.length >= MAX_INVENTORY) {
+        if (c.inventory.length >= satchelSize(p.profile)) {
           this.notice(p, 'Your satchel is full.', 'bad');
           return;
         }
@@ -1101,8 +1245,8 @@ export class Realm {
       const slot = itemId as 'weapon' | 'armor' | 'charm';
       if (!['weapon', 'armor', 'charm'].includes(slot)) return;
       const item = c.equipment[slot];
-      if (!item || item.tier >= 6) {
-        this.notice(p, 'Equip an item below tier 6 to temper it.', 'bad');
+      if (!item || item.tier >= MAX_TIER) {
+        this.notice(p, `Equip an item below tier ${MAX_TIER} to temper it.`, 'bad');
         return;
       }
       const cost = item.tier * 50;
@@ -1117,6 +1261,51 @@ export class Realm {
       this.notice(p, `${item.name} tempered to tier ${item.tier}.`, 'good');
     } else return;
     this.sync(p, true);
+  }
+  /** True when a hostile shot would have swept over this traveler within the window. */
+  wouldBeHit(p: Player, window: number) {
+    // Read the live bullets, not the broadcast index: a dash happens between snapshots.
+    for (const b of this.bullets.values()) {
+      if (b.friendly || b.dimension !== p.dimension) continue;
+      const relX = b.x - p.x,
+        approach = Math.hypot(relX, b.z - p.z);
+      if (approach > 26) continue;
+      const relZ = b.z - p.z;
+      // Closest approach of a straight shot to a stationary point, clamped to the window.
+      const speed = b.vx * b.vx + b.vz * b.vz;
+      if (!speed) continue;
+      const t = Math.max(0, Math.min(window, -(relX * b.vx + relZ * b.vz) / speed));
+      const gap = Math.hypot(relX + b.vx * t, relZ + b.vz * t);
+      if (gap <= 0.4 + b.radius) return true;
+    }
+    return false;
+  }
+  /**
+   * Drink a draught. Its stat rises permanently for this life, up to the cap this level
+   * allows; at cap it is worth a little gold instead, so a lucky drop is never wasted.
+   */
+  drink(p: Player, item: Item) {
+    const c = p.profile.character!,
+      kind = ATTUNEMENT_BY_ID.get(item.attune ?? '');
+    if (!kind) return;
+    if (atAttunementCap(c, kind.id)) {
+      c.gold += 25;
+      this.notice(p, `${kind.name}: ${kind.label} is already at its cap. +25 gold.`, 'info');
+      return;
+    }
+    c.attunements = { ...(c.attunements ?? {}), [kind.id]: attunementCount(c, kind.id) + 1 };
+    const count = attunementCount(c, kind.id),
+      cap = attunementCap(c.level);
+    c.hp = Math.min(stats(c).maxHp, c.hp);
+    c.mp = Math.min(stats(c).maxMp, c.mp);
+    this.effect('level', p, kind.color, kind.label.toUpperCase(), p.profile.id);
+    this.notice(
+      p,
+      count >= cap
+        ? `${kind.label} is at its cap for level ${c.level}. ${kind.name} drunk.`
+        : `${kind.name}. ${kind.label} ${count}/${cap} for this life.`,
+      'good',
+    );
   }
   recall(p: Player) {
     p.epoch++;
@@ -1136,6 +1325,22 @@ export class Realm {
   /** Travel-to: only from the sanctuary, only toward a connected traveler fighting in the wilds.
    * The actor lands two units away on the Hearth side, briefly invulnerable, then waits 20 s. */
   travel(p: Player, targetId?: string) {
+    // While the realm musters, the road to the Crown is free, from wherever you are stood.
+    if (targetId === 'crown' && Number.isFinite(this.endingAt)) {
+      p.epoch++;
+      p.dimension = 'wilds';
+      p.x = (this.rng() - 0.5) * 14;
+      p.z = -52 + (this.rng() - 0.5) * 6;
+      p.input = { ...EMPTY_INPUT, angle: -Math.PI / 2 };
+      p.heldFor = 0;
+      p.dashUntil = 0;
+      p.lastInput = this.time;
+      p.invulnerableUntil = this.time + 3;
+      this.effect('portal', p, '#e3c68c');
+      this.notice(p, 'You arrive at the Crown. The sky is already changing.', 'good');
+      this.sync(p);
+      return true;
+    }
     if (!isSafe(p, p.dimension)) {
       this.notice(p, 'Travel from the Hearth. R brings you home first.', 'bad');
       return false;
@@ -1187,6 +1392,34 @@ export class Realm {
     this.notice(p, `You arrive beside ${target.profile.name}.`, 'good');
     this.sync(p);
     return true;
+  }
+  /**
+   * Parties. Joining someone means sharing every kill they earn in the same dimension, at
+   * any distance, and standing out on each other's maps. Leaving is the same action, empty.
+   */
+  party(p: Player, targetId?: string) {
+    if (!targetId) {
+      if (!p.party) return;
+      p.party = undefined;
+      this.notice(p, 'You are walking alone again.', 'info');
+      return;
+    }
+    const target = this.players.get(targetId);
+    if (!target || target === p || !target.profile.character) {
+      this.notice(p, 'That traveler is not in this realm.', 'bad');
+      return;
+    }
+    const party = (target.party ??= target.profile.id);
+    const size = [...this.players.values()].filter((q) => q.party === party).length;
+    if (size >= MAX_PARTY) {
+      this.notice(p, `That party is full at ${MAX_PARTY}.`, 'bad');
+      return;
+    }
+    p.party = party;
+    this.notice(p, `You are walking with ${target.profile.name}. Kills are shared.`, 'good');
+    for (const ally of this.players.values())
+      if (ally.party === party && ally !== p)
+        this.notice(ally, `${p.profile.name} is walking with you.`, 'info');
   }
   publicPlayer(p: Player): PlayerState {
     const c = p.profile.character!,
@@ -1282,6 +1515,12 @@ export class Realm {
         oz = b.z;
       b.x += b.vx * dt;
       b.z += b.vz * dt;
+      // Rooms are rooms: inside an instance a shot stops at the wall rather than crossing
+      // it. In the open wilds shots still fly over scenery, exactly as they always have.
+      if (b.dimension !== 'wilds' && !b.bounces && !inBounds(b.x, b.z, b.dimension)) {
+        this.bullets.delete(id);
+        continue;
+      }
       // Skipstone: a shot that meets scenery or the world edge turns off it once.
       if (b.bounces && !canMove(b.x, b.z, b.dimension)) {
         b.bounces--;
@@ -1302,19 +1541,26 @@ export class Realm {
           )
             continue;
           b.hits.add(e.id);
-          // A bulwark's front arc turns shots aside. Flanking it is the whole fight.
-          const guard = ENEMIES[e.kind].guard;
-          if (guard) {
-            const facing = Math.atan2(oz - e.z, ox - e.x) - e.angle;
-            const off = Math.abs(Math.atan2(Math.sin(facing), Math.cos(facing)));
-            if (off < guard) {
-              this.effect('hit', e, '#cfd6c4', 'GUARD');
+          // Which side of the creature this shot came in on. A bulwark's front turns shots
+          // aside; a boss's back is its core and takes more. Both are the same reading.
+          const def = ENEMIES[e.kind];
+          const incoming = Math.atan2(oz - e.z, ox - e.x) - e.angle;
+          const off = Math.abs(Math.atan2(Math.sin(incoming), Math.cos(incoming)));
+          let facing = 1;
+          if (def.guard && off < def.guard) {
+            // A creature's guard is absolute; a keeper's is a wall you can still chip.
+            facing = e.boss ? 0.3 : 0;
+            this.effect('hit', e, '#cfd6c4', 'GUARD');
+            if (!e.boss) {
               if (b.pierce-- <= 0) {
                 this.bullets.delete(id);
                 break;
               }
               continue;
             }
+          } else if (def.weak && off > def.weak.arc) {
+            facing = def.weak.multiplier;
+            this.effect('hit', e, '#f6e3b0', 'CORE');
           }
           if (e.boss && !e.scaledFor && e.hp === e.maxHp) {
             const allies = live.filter(
@@ -1328,13 +1574,15 @@ export class Realm {
             const multiplier = 1 + Math.pow(e.scaledFor - 1, 0.85) * 0.65;
             e.hp = e.maxHp = Math.round(ENEMIES[e.kind].hp * e.healthScale * multiplier);
           }
-          e.hp -= b.damage;
+          const damage = b.damage * facing;
+          e.hp -= damage;
           e.contributors.set(b.owner, this.time);
-          this.effect('hit', e, b.color, `${Math.round(b.damage)}`);
+          this.effect('hit', e, b.color, `${Math.round(damage)}`);
           // The break window: enough damage while a boss is winding up cancels the pattern.
           const breakPoint = ENEMIES[e.kind].breakPoint;
           if (breakPoint && e.telegraph > 0 && e.hp > 0) {
-            e.windupDamage = (e.windupDamage ?? 0) + b.damage;
+            e.windupDamage = (e.windupDamage ?? 0) + damage;
+            e.breaking = Math.min(1, e.windupDamage / (e.maxHp * breakPoint));
             if (e.windupDamage >= e.maxHp * breakPoint) this.breakAttack(e);
           }
           if (e.hp <= 0) this.killEnemy(e, live);
@@ -1390,14 +1638,14 @@ export class Realm {
       this.updateSpawnBudget();
     }
     if (this.resetAt <= this.time) {
-      this.wardens.clear();
-      for (const kind of ['rootwarden', 'glasswarden', 'duskwarden']) {
-        const pos =
-          kind === 'rootwarden' ? [-43, -20] : kind === 'glasswarden' ? [42, -25] : [0, -35];
-        this.spawn(kind, pos[0], pos[1], 'wilds');
-      }
       this.resetAt = Infinity;
-      this.chat('The Hearth', 'The wardens have returned. The realm begins again.', true);
+      this.reseed();
+    }
+    // The muster ends and the Sovereign comes out.
+    if (this.endingAt <= this.time) {
+      this.endingAt = Infinity;
+      this.spawn('sovereign', 0, -66, 'wilds');
+      this.chat('The Hearth', 'The Crown is open. The Ashen Sovereign is here.', true);
     }
     this.updateHazards(live);
     this.updateSetpieces(dt);
@@ -1561,7 +1809,8 @@ export class Realm {
         // A bulwark turns, it does not snap. Getting inside its guard is the counterplay,
         // and a lone traveler can do it by closing the distance rather than circling wide.
         const delta = Math.atan2(Math.sin(want - e.angle), Math.cos(want - e.angle));
-        e.angle += Math.max(-BULWARK_TURN * dt, Math.min(BULWARK_TURN * dt, delta));
+        const turn = (e.boss ? BOSS_TURN : BULWARK_TURN) * dt;
+        e.angle += Math.max(-turn, Math.min(turn, delta));
       } else e.angle = want;
     }
     // A broken attack costs the creature its next pattern and a moment on its feet.
@@ -1571,7 +1820,11 @@ export class Realm {
       e.nextFire = Math.max(e.nextFire, e.staggerUntil!);
       return;
     }
-    if (telegraph && !e.aiming) e.windupDamage = 0;
+    if (telegraph && !e.aiming) {
+      e.windupDamage = 0;
+      e.breaking = 0;
+    }
+    if (!telegraph) e.breaking = 0;
     e.aiming = telegraph;
     if (def.behaviour) this.behave(e, def, target, near, dt, telegraph);
     else if (
@@ -1896,6 +2149,7 @@ export class Realm {
   /** Cancel a winding attack, stagger the creature, and clear the shots it had started. */
   breakAttack(e: Enemy) {
     e.windupDamage = 0;
+    e.breaking = 0;
     e.telegraph = 0;
     e.aiming = false;
     e.staggerUntil = this.time + 1.3;
@@ -1920,6 +2174,7 @@ export class Realm {
         : undefined,
     );
     const def = ENEMIES[e.kind];
+    if (e.dimension === 'wilds' && e.zone && ECOLOGY_BY_PLACE.has(e.zone)) this.liberate(e.zone);
     if (!e.boss && !e.runId && e.dimension === 'wilds' && !e.noRespawn) this.rollPortal(e);
     if (e.setpiece && (e.nest || e.fixed)) {
       const slot = SETPIECE_SLOTS.find((s) => s.id === e.setpiece);
@@ -1952,16 +2207,19 @@ export class Realm {
       this.wardens.add(e.kind);
       this.chat('The Hearth', `${e.name} has fallen. ${this.wardens.size}/3 seals broken.`, true);
       if (this.wardens.size === 3) {
-        this.spawn('sovereign', 0, -66, 'wilds');
-        this.chat('The Hearth', 'The Crown is open. The Ashen Sovereign awaits.', true);
+        // The muster: one minute, the sky turns, and the road to the Crown is free to
+        // everyone in the realm. Then the Sovereign comes out and it is a raid.
+        this.endingAt = this.time + MUSTER_SECONDS;
+        this.chat(
+          'The Hearth',
+          `The third seal is broken. The Crown opens in ${MUSTER_SECONDS} seconds — travel there free, from wherever you are stood.`,
+          true,
+        );
       }
     } else if (e.kind === 'sovereign') {
       this.resetAt = this.time + 180;
-      this.chat(
-        'The Hearth',
-        'The Sovereign has fallen. For a moment, the whole world is quiet.',
-        true,
-      );
+      this.endingAt = Infinity;
+      this.closeRealm();
     } else if (!e.event && !e.runId && !e.noRespawn) {
       if (e.zone && !e.fixed) this.zoneKills.set(e.zone, (this.zoneKills.get(e.zone) ?? 0) + 1);
       this.respawns.push({
@@ -1985,12 +2243,15 @@ export class Realm {
     const eligible: Player[] = [];
     for (const p of players) {
       const c = p.profile.character;
+      const sharing =
+        !!p.party &&
+        [...players].some((q) => q.party === p.party && e.contributors.has(q.profile.id));
       if (
         !c ||
         isSafe(p, p.dimension) ||
         p.dimension !== e.dimension ||
-        distance(p, e) > 38 ||
-        (!e.contributors.has(p.profile.id) && distance(p, e) > 18)
+        (!sharing &&
+          (distance(p, e) > 38 || (!e.contributors.has(p.profile.id) && distance(p, e) > 18)))
       )
         continue;
       eligible.push(p);
@@ -2059,7 +2320,7 @@ export class Realm {
             (firstUpgrade
               ? 'weapon'
               : (['weapon', 'armor', 'charm'] as const)[Math.floor(this.rng() * 3)]),
-          firstUpgrade ? 2 : Math.min(6, def.tier),
+          firstUpgrade ? 2 : Math.min(MAX_TIER, def.tier),
           rarity,
           this.rng,
         );
@@ -2073,6 +2334,21 @@ export class Realm {
             dimension: e.dimension,
           },
           [item],
+        );
+      }
+      // Keepers and biome bosses pour draughts, favouring two kinds each, and generously:
+      // they are lost on death, so the ladder has to be climbable again.
+      if (e.boss && this.rng() < 0.62) {
+        const kind = attunementRoll(e.kind, this.rng());
+        this.dropItems(
+          p.profile.id,
+          {
+            x: e.x + (this.rng() - 0.5) * 2.4,
+            z: e.z + (this.rng() - 0.5) * 2.4,
+            dimension: e.dimension,
+          },
+          [makeAttunement(kind)],
+          240,
         );
       }
       if (this.rng() < 0.12 && c.potions < 5) c.potions++;
@@ -2110,6 +2386,58 @@ export class Realm {
       `${template.name} has opened in ${place.name}. ${PORTAL_SECONDS} seconds before the door closes.`,
       true,
     );
+  }
+  /**
+   * Taking a place back. Every creature put down in a place counts against its quota, and
+   * the thresholds are things you can see: its setpieces stop going quiet, a second keeper
+   * comes out to meet you, and finally the fog lifts and the place is yours.
+   */
+  liberate(place: string) {
+    const kills = (this.liberation.get(place) ?? 0) + 1;
+    this.liberation.set(place, kills);
+    const stage = liberationStage(kills),
+      before = this.liberationStages.get(place) ?? 0;
+    if (stage === before) return;
+    this.liberationStages.set(place, stage);
+    const named = PLACE_BY_ID.get(place)?.name ?? place;
+    if (stage === 1) {
+      // Its setpieces stay awake: the ground it holds stops going quiet behind you.
+      for (const slot of SETPIECE_SLOTS)
+        if (slot.parent === place) {
+          const piece = this.setpieces.get(slot.id);
+          if (piece && piece.status === 'cleared')
+            piece.readyAt = Math.min(piece.readyAt, this.time + 30);
+        }
+      this.chat(
+        'The Hearth',
+        `${named} is giving ground. Its ruins will not go quiet again.`,
+        true,
+      );
+    } else if (stage === 2) {
+      const biome = BIOMES[place as BiomeId];
+      const eco = ECOLOGY_BY_PLACE.get(place);
+      if (biome && eco) {
+        const at = eco.anchors[1];
+        const second = this.spawn(biome.boss.kind, at.x, at.z, 'wilds', false, place);
+        second.fixed = true;
+        second.name = `${ENEMIES[biome.boss.kind].name} · roused`;
+        this.chat('The Hearth', `${named}: something else has come out to meet you.`, true);
+      }
+    } else if (stage === 3) {
+      this.chat('The Hearth', `${named} is ours. The fog is lifting.`, true);
+      for (const p of this.players.values())
+        if (p.profile.character && zoneAt(p.x, p.z).id === place) {
+          p.profile.embers += 8;
+          this.notice(p, `${named} liberated. +8 embers.`, 'good');
+          this.sync(p, true);
+        }
+    }
+  }
+  liberationStates(): LiberationState[] {
+    return [...ECOLOGY_BY_PLACE.keys()].map((place) => {
+      const kills = this.liberation.get(place) ?? 0;
+      return { place, kills, quota: LIBERATION_QUOTA, stage: liberationStage(kills) };
+    });
   }
   /** Doors close on their own. Nobody inside is ever moved. */
   updatePortals() {
@@ -2297,6 +2625,18 @@ export class Realm {
     };
     p.profile.embers += Math.floor(fame / 10);
     p.profile.graves.unshift(grave);
+    // The realm remembers where. A marker stands there until forty more have fallen.
+    this.graveMarkers.unshift({
+      name: grave.name,
+      classId: grave.classId,
+      level: grave.level,
+      cause: grave.cause,
+      at: grave.at,
+      x: p.x,
+      z: p.z,
+      dimension: p.dimension,
+    });
+    this.graveMarkers = this.graveMarkers.slice(0, 40);
     p.profile.graves = p.profile.graves.slice(0, 20);
     p.profile.character = null;
     this.store.recordDeath(p.profile, grave);
@@ -2314,6 +2654,54 @@ export class Realm {
    * Events are rows now. One is running at a time per realm; when it ends the next is drawn
    * from the table, placed in a biome someone can reach, and announced by name and place.
    */
+  /**
+   * The end of a realm. Everyone present gets the same recap — what this realm took back,
+   * and what it cost — and then the whole thing begins again on a fresh seed.
+   */
+  closeRealm() {
+    const taken = this.liberationStates().filter((l) => l.stage >= 3).length;
+    const fallen = this.graveMarkers.length;
+    this.chat(
+      'The Hearth',
+      `The Sovereign has fallen. For a moment, the whole world is quiet.`,
+      true,
+    );
+    this.chat(
+      'The Hearth',
+      `This realm: ${taken} ${taken === 1 ? 'place' : 'places'} taken back, ${this.wardens.size} seals broken, ${fallen} ${fallen === 1 ? 'traveler' : 'travelers'} lost. A new realm opens in three minutes.`,
+      true,
+    );
+    for (const p of this.players.values()) {
+      if (!p.profile.character) continue;
+      p.profile.embers += 20;
+      this.notice(
+        p,
+        `The Crown is broken. ${taken} ${taken === 1 ? 'place' : 'places'} liberated · ${fallen} lost · +20 embers.`,
+        'good',
+      );
+      this.sync(p, true);
+    }
+  }
+  /** A fresh realm, on a fresh seed: new setpieces, new packs, and every place to take again. */
+  reseed() {
+    this.rng = random((Math.random() * 0xffffffff) >>> 0);
+    this.wardens.clear();
+    this.liberation.clear();
+    this.liberationStages.clear();
+    this.graveMarkers = [];
+    this.packs.clear();
+    for (const [id, e] of this.enemies)
+      if (e.dimension === 'wilds' && !e.runId) this.enemies.delete(id);
+    this.respawns = this.respawns.filter((r) => r.dim !== 'wilds');
+    this.setpieces.clear();
+    this.populate();
+    this.endEvent();
+    this.chat(
+      'The Hearth',
+      'The wardens have returned. The realm begins again, and it is not the realm you knew.',
+      true,
+    );
+  }
   updateEvent(dt: number) {
     if (![...this.players.values()].some((p) => p.profile.character)) return;
     this.event.remaining -= dt;
@@ -2476,6 +2864,10 @@ export class Realm {
         dimension: p.dimension,
         x: p.x,
         z: p.z,
+        ...(hasPerk(p.profile, 'title')
+          ? { title: masteryTitle(legacyOf(p.profile).highestDepth) }
+          : {}),
+        ...(p.party ? { party: p.party } : {}),
       }));
   }
   broadcast() {
@@ -2488,6 +2880,7 @@ export class Realm {
     if (roster) this.lastRoster = this.time;
     const setpieces = roster ? this.setpieceStates() : undefined;
     const portals = roster && this.portals.size ? this.portalStates() : undefined;
+    const liberation = roster ? this.liberationStates() : undefined;
     // One realm summary per broadcast, not one per traveler: it walks every creature.
     const realm = this.info();
     this.enemyGrid.fill(this.enemies.values());
@@ -2539,6 +2932,19 @@ export class Realm {
               damageScale,
               speedScale,
               rateScale,
+              windupDamage,
+              staggerUntil,
+              packId,
+              summonedBy,
+              noRespawn,
+              setpiece,
+              nest,
+              sideRoom,
+              rushUntil,
+              nextSummon,
+              boost,
+              boostFrom,
+              nextHazard,
               ...e
             }) => e,
           ),
@@ -2561,6 +2967,10 @@ export class Realm {
         ...(roster ? { roster } : {}),
         ...(setpieces ? { setpieces } : {}),
         ...(portals ? { portals } : {}),
+        ...(liberation ? { liberation } : {}),
+        ...(roster && this.graveMarkers.length
+          ? { graves: this.graveMarkers.filter((g) => g.dimension === p.dimension).slice(0, 24) }
+          : {}),
         ...(this.setpieceFor(p) ? { setpiece: this.setpieceFor(p) } : {}),
       });
     }

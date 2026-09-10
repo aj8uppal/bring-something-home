@@ -1,4 +1,5 @@
 import { CLASSES } from './content.js';
+import { attunementBonus } from './attunements.js';
 import type { Character, Item } from './types.js';
 
 export const TRAITS = {
@@ -21,14 +22,25 @@ export function hasTrait(c: Character, trait: Trait) {
 }
 export function combatStats(c: Character) {
   const base = CLASSES[c.classId];
+  const drank = attunementBonus(c);
+  const set = setBonus(c);
   return {
-    maxHp: base.hp + (c.level - 1) * 14 + (c.equipment.armor?.power ?? 0) * 5,
-    maxMp: base.mp + (c.level - 1) * 4 + (c.equipment.charm?.power ?? 0) * 2.5,
-    damage: base.damage + (c.level - 1) * 2.6 + (c.equipment.weapon?.power ?? 0),
-    reduction: Math.min(0.38, (c.equipment.armor?.power ?? 0) * 0.006),
-    speed: base.speed * (hasTrait(c, 'vigor') ? 1.08 : 1),
-    regen: 6 + (c.equipment.charm?.power ?? 0) * 0.13 + (hasTrait(c, 'focus') ? 3 : 0),
-    rate: base.rate / (hasTrait(c, 'swift') ? 1.25 : 1),
+    maxHp:
+      base.hp + (c.level - 1) * 14 + (c.equipment.armor?.power ?? 0) * 5 + drank.maxHp + set.maxHp,
+    maxMp:
+      base.mp + (c.level - 1) * 4 + (c.equipment.charm?.power ?? 0) * 2.5 + drank.maxMp + set.maxMp,
+    damage:
+      (base.damage + (c.level - 1) * 2.6 + (c.equipment.weapon?.power ?? 0) + drank.damage) *
+      set.damage,
+    // Gear still caps at 38%; draughts and a set add on top of it, to a hard 55% ceiling.
+    reduction: Math.min(
+      0.55,
+      Math.min(0.38, (c.equipment.armor?.power ?? 0) * 0.006) + drank.reduction + set.reduction,
+    ),
+    speed: base.speed * (hasTrait(c, 'vigor') ? 1.08 : 1) * set.speed + drank.speed,
+    regen:
+      6 + (c.equipment.charm?.power ?? 0) * 0.13 + (hasTrait(c, 'focus') ? 3 : 0) + drank.regen,
+    rate: Math.max(0.05, base.rate / (hasTrait(c, 'swift') ? 1.25 : 1) / set.rate + drank.rate),
   };
 }
 export function weaponShots(c: Character) {
@@ -56,7 +68,16 @@ export function situationalDamage(c: Character, hp: number, maxHp: number) {
   const low = hp <= maxHp / 3 && hasTrait(c, 'defiance') ? 1.25 : 1;
   return full * low;
 }
-export const chainMultiplier = (kills: number) => 1 + Math.min(4, Math.floor(kills / 5)) * 0.1;
+/**
+ * A chain is worth more the longer you hold it. The first four steps are exactly what they
+ * always were, to forty per cent; past that it keeps climbing on a shallower slope, so an
+ * aggressive run is a real reward rather than a ceiling reached in twenty seconds.
+ */
+export const chainMultiplier = (kills: number) =>
+  1 +
+  Math.min(4, Math.floor(kills / 5)) * 0.1 +
+  Math.max(0, Math.min(6, Math.floor((kills - 20) / 5))) * 0.05;
+export const CHAIN_CAP = chainMultiplier(50);
 export const CHAIN_WINDOW = 12;
 
 /** Each boss has a specific chase item, so choosing an encounter can shape a build. */
@@ -182,7 +203,7 @@ export const BOSS_RELICS: Record<
   },
   choirmaster: {
     name: 'The Beat Under the Ash',
-    slot: 'weapon',
+    slot: 'charm',
     trait: 'swift',
     description: 'Hold it and you will find yourself keeping time with something.',
   },
@@ -199,3 +220,91 @@ export const BOSS_RELICS: Record<
     description: 'It has been holding on to all of it. It will give some of it back.',
   },
 };
+
+/**
+ * Set bonuses. Three related relics worn together are a named build rather than a
+ * checklist, so the relic collection is a goal instead of a wall of ticks.
+ *
+ * Each is one weapon, one armour and one charm. `damage`, `speed` and `rate` multiply;
+ * health, light and armour add.
+ */
+export interface GearSet {
+  id: string;
+  name: string;
+  /** The keepers whose relics make it, in weapon, armour, charm order. */
+  relics: [string, string, string];
+  description: string;
+  bonus: Partial<{
+    maxHp: number;
+    maxMp: number;
+    damage: number;
+    reduction: number;
+    speed: number;
+    rate: number;
+  }>;
+}
+export const GEAR_SETS: GearSet[] = [
+  {
+    id: 'accord',
+    name: 'The Elders’ Accord',
+    relics: ['nullelder', 'cinderelder', 'tideelder'],
+    description: 'What three elders agreed on, in the end.',
+    bonus: { damage: 1.12, maxMp: 40, rate: 1.06 },
+  },
+  {
+    id: 'first-realm',
+    name: 'The First Realm',
+    relics: ['duskwarden', 'rootwarden', 'archivist'],
+    description: 'The bell, the road and the blank page: everything the old world kept.',
+    bonus: { maxHp: 90, speed: 1.05, reduction: 0.04 },
+  },
+  {
+    id: 'sun-and-glass',
+    name: 'The Sun and the Glass',
+    relics: ['forgemother', 'glasswarden', 'orrerywarden'],
+    description: 'A needle, a sunrise and an hour that never struck.',
+    bonus: { damage: 1.1, rate: 1.1 },
+  },
+  {
+    id: 'crown-entire',
+    name: 'The Crown Entire',
+    relics: ['sovereign', 'stormremembers', 'tidechoir'],
+    description: 'Everything the Crown was holding back, worn all at once.',
+    bonus: { damage: 1.15, maxHp: 70, reduction: 0.03 },
+  },
+  {
+    id: 'salt-and-stone',
+    name: 'The Salt and the Stone',
+    relics: ['saltking', 'orchardmother', 'warrenmother'],
+    description: 'A kingdom of white towers, a seedling, and one held breath.',
+    bonus: { maxHp: 120, reduction: 0.06 },
+  },
+  {
+    id: 'fused-choir',
+    name: 'The Fused Choir',
+    relics: ['fusedtitan', 'marrowherald', 'lanternprime'],
+    description: 'A hundred travelers, one warning, and a light to read it by.',
+    bonus: { damage: 1.08, speed: 1.08, maxMp: 50 },
+  },
+  {
+    id: 'hive-and-vigil',
+    name: 'The Hive and the Vigil',
+    relics: ['hivequeen', 'vigilkeeper', 'choirmaster'],
+    description: 'An unfinished letter, a tally of dawns, and something keeping time.',
+    bonus: { rate: 1.14, maxHp: 60 },
+  },
+];
+export const NEUTRAL_SET = { maxHp: 0, maxMp: 0, damage: 1, reduction: 0, speed: 1, rate: 1 };
+/** The set a traveler is actually wearing, if their three relics happen to agree. */
+export function activeSet(c: Character): GearSet | undefined {
+  const worn = new Set(
+    Object.values(c.equipment)
+      .map((item) => item?.relicId)
+      .filter(Boolean) as string[],
+  );
+  if (worn.size < 3) return undefined;
+  return GEAR_SETS.find((set) => set.relics.every((kind) => worn.has(kind)));
+}
+export function setBonus(c: Character) {
+  return { ...NEUTRAL_SET, ...(activeSet(c)?.bonus ?? {}) };
+}

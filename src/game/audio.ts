@@ -54,11 +54,16 @@ export class Sound {
     o.start();
     o.stop(now + duration + 0.02);
   }
+  /** The ambient bed. Each biome carries its own chord; the world sets it on entry. */
+  chord = [130.81, 196, 261.63, 329.63];
+  setAmbient(chord: number[]) {
+    if (chord.join() === this.chord.join()) return;
+    this.chord = chord;
+    this.ambient();
+  }
   ambient() {
     if (this.ctx?.state !== 'running' || !settings.music) return;
-    [130.81, 196, 261.63, 329.63].forEach((n, i) =>
-      this.tone(n, 6.8, 'sine', 0.12 / (i + 1), 0, true),
-    );
+    this.chord.forEach((n, i) => this.tone(n, 6.8, 'sine', 0.12 / (i + 1), 0, true));
   }
   play(kind: string) {
     if (kind === 'shot') {
@@ -102,6 +107,11 @@ export class Sound {
     if (kind === 'death') {
       this.tone(220, 2, 'sine', 0.15, -160);
       this.tone(261, 2.5, 'sine', 0.1, -200);
+    }
+    if (kind === 'perfect') {
+      // A clean two-note chime, distinct from anything else in the mix.
+      this.tone(1320, 0.14, 'sine', 0.09);
+      setTimeout(() => this.tone(1976, 0.22, 'sine', 0.07), 55);
     }
     if (kind === 'click') this.tone(660, 0.05, 'sine', 0.07);
   }

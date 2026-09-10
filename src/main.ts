@@ -64,6 +64,7 @@ import {
   type MapPin,
 } from './game/map';
 import { placeById, threatOf } from '../shared/places';
+import { satchelSize } from '../shared/perks';
 import { templateOf } from '../shared/instances';
 import { TEMPLATE_BY_ID, templateName } from '../shared/templates';
 import { ISLAND } from '../shared/world';
@@ -363,7 +364,7 @@ function onMessage(m: ServerMessage) {
     renderProfile();
     if (
       panel &&
-      ['inventory', 'vault', 'forge', 'journal', 'codex', 'rally', 'recap'].includes(panel)
+      ['inventory', 'vault', 'forge', 'board', 'journal', 'codex', 'rally', 'recap'].includes(panel)
     )
       renderPanel();
   }
@@ -372,7 +373,7 @@ function onMessage(m: ServerMessage) {
     snapshot = m;
     if (m.roster) {
       roster = m.roster;
-      if (panel === 'realms' || panel === 'atlas') renderPanel();
+      if (panel === 'realms' || panel === 'atlas' || panel === 'board') renderPanel();
     }
     // The Crown and the Elders are explained once, the first time a seal breaks while you watch.
     if (
@@ -538,6 +539,12 @@ function renderVitals() {
   if (e.active)
     $('event-banner').innerHTML =
       `${icon('spark')} <span>${(e.name ?? 'THE WANDERING STAR').toUpperCase()}<small>${e.kills}/${e.target} · ${Math.ceil(e.remaining)}s · ${placeById(e.place)?.name ?? 'the wilds'}</small></span>`;
+  // The realm ending: a countdown everybody can see, and a free road to the Crown.
+  const ending = snapshot.realm.ending;
+  $('muster-banner').classList.toggle('hidden', ending === undefined);
+  if (ending !== undefined)
+    $('muster-banner').innerHTML =
+      `${icon('crown')} <span>THE CROWN OPENS<small>${ending}s · <button class="text-link" data-game="travel" data-id="crown">Travel there now</button></small></span>`;
   // A setpiece names itself on approach and then counts, in the same slot as the event.
   const piece = snapshot.setpiece;
   $('setpiece-banner').classList.toggle('hidden', !piece);
@@ -903,7 +910,12 @@ function updateInteraction() {
     ]);
     if (signature !== groundLootSignature) {
       groundLootSignature = signature;
-      $('ground-loot').innerHTML = bagHud(profile.character, drop, drops.length);
+      $('ground-loot').innerHTML = bagHud(
+        profile.character,
+        drop,
+        drops.length,
+        satchelSize(profile),
+      );
     }
     if ($('loot-expiry'))
       text('loot-expiry', String(Math.max(0, Math.ceil(drop.expires - snapshot.time))));
@@ -1076,6 +1088,12 @@ function renderPanel() {
     content = ui.leaderboardPanel(leaderboard);
     wide = true;
   }
+  if (panel === 'board') {
+    title = 'The realm board';
+    eyebrow = 'WHAT THIS REALM IS DOING';
+    wide = true;
+    content = ui.boardPanel(profile, snapshot, roster, selectedTraveler);
+  }
   if (panel === 'realms') {
     title = 'Find your people';
     eyebrow = 'SHARED REALMS';
@@ -1158,7 +1176,7 @@ async function refreshRealms() {
       'realm-status',
       `${realms.reduce((n, r) => n + r.players, 0)} travelers · ${realms.length} open realm${realms.length === 1 ? '' : 's'}`,
     );
-    if (panel === 'realms') renderPanel();
+    if (panel === 'realms' || panel === 'board') renderPanel();
   } catch {
     text('realm-status', 'Realm unavailable · retry to enter');
   }
@@ -1197,7 +1215,7 @@ function renderKit() {
   if (kitSignature === signature) return;
   kitSignature = signature;
   $('hud-stats').innerHTML = statHud(c);
-  $('hud-kit').innerHTML = kitHud(c, safe);
+  $('hud-kit').innerHTML = kitHud(c, safe, profile ? satchelSize(profile) : undefined);
 }
 let tooltipTarget: HTMLElement | undefined, tooltipTimer: ReturnType<typeof setTimeout>;
 function findHudItem(id: string) {
@@ -1242,7 +1260,12 @@ function showItemTooltip(target: HTMLElement) {
   tooltipTarget = target;
   applyStatDeltas(found.item);
   const el = $('item-tooltip');
-  el.innerHTML = itemTooltip(found.c, found.item, found.bag);
+  el.innerHTML = itemTooltip(
+    found.c,
+    found.item,
+    found.bag,
+    profile ? satchelSize(profile) : undefined,
+  );
   el.classList.remove('hidden');
   const rect = target.getBoundingClientRect(),
     bounds = el.getBoundingClientRect();
@@ -1782,6 +1805,7 @@ window.addEventListener('keydown', (e) => {
     KeyM: 'atlas',
     KeyJ: 'journal',
     KeyP: 'rally',
+    KeyK: 'board',
   };
   if (panels[e.code]) openPanel(panels[e.code]);
   if (e.code === 'Enter') {

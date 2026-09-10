@@ -1,6 +1,7 @@
 import { combatStats as stats, TRAITS, type Trait } from '../shared/combat.js';
 import { randomUUID } from 'node:crypto';
 import { CLASSES, RARITIES, MAX_LEVEL, xpForLevel } from '../shared/content.js';
+import { ATTUNEMENT_BY_ID } from '../shared/attunements.js';
 import type { Character, ClassId, Item, Rarity, Slot } from '../shared/types.js';
 export function makeItem(slot: Slot, tier: number, rarity: Rarity, rng = Math.random): Item {
   const names = {
@@ -72,4 +73,20 @@ export function grantXp(c: Character, amount: number) {
   }
   if (c.level >= MAX_LEVEL) c.xp = 0;
   return before !== c.level;
+}
+
+/** A draught. It is loot on the floor like anything else, and drinking it is picking it up. */
+export function makeAttunement(id: string): Item {
+  const kind = ATTUNEMENT_BY_ID.get(id)!;
+  return {
+    id: randomUUID(),
+    name: kind.name,
+    slot: 'charm',
+    rarity: 'rare',
+    tier: 1,
+    power: 0,
+    icon: 'potion',
+    description: kind.description,
+    attune: id,
+  };
 }

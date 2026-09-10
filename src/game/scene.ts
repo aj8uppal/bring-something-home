@@ -299,6 +299,7 @@ export class WorldView {
   guides: AttackGuides;
   hazardMeshes = new Map<number, THREE.Group>();
   portalMeshes = new Map<string, THREE.Group>();
+  graveMeshes = new Map<string, THREE.Group>();
   beacons: THREE.InstancedMesh;
   beaconSignature = '';
   fogTarget = FOG_BASE.clone();
@@ -1331,6 +1332,36 @@ export class WorldView {
       }
       g.userData.door = door;
     }
+    // Graves: a stone where somebody went down, with their name and what took them.
+    if (s.graves) {
+      const standing = new Set(s.graves.map((g) => `${g.name}-${g.at}`));
+      for (const [id, g] of this.graveMeshes)
+        if (!standing.has(id)) {
+          this.world.remove(g);
+          disposeObject(g);
+          this.graveMeshes.delete(id);
+          this.removeLabel(`grave-${id}`);
+        }
+      for (const grave of s.graves) {
+        const id = `${grave.name}-${grave.at}`;
+        if (this.graveMeshes.has(id)) continue;
+        const g = new THREE.Group();
+        const stone = mesh(BOX, '#9d9682', 0, 0.55, 0);
+        stone.scale.set(0.7, 1.1, 0.22);
+        g.add(stone);
+        const cap = mesh(ICO, '#b6ad95', 0, 1.14, 0);
+        cap.scale.set(0.38, 0.28, 0.2);
+        g.add(cap);
+        const flame = mesh(OCT, CLASSES[grave.classId].color, 0, 1.5, 0);
+        flame.scale.set(0.14, 0.3, 0.14);
+        g.add(flame);
+        g.position.set(grave.x, groundHeight(grave.x, grave.z, s.self.dimension), grave.z);
+        g.rotation.y = grave.at % 6;
+        g.userData.grave = grave;
+        this.world.add(g);
+        this.graveMeshes.set(id, g);
+      }
+    }
     const hazards = new Set((s.hazards ?? []).map((h) => h.id));
     for (const [id, g] of this.hazardMeshes)
       if (!hazards.has(id)) {
@@ -1396,10 +1427,22 @@ export class WorldView {
         if (distance(g.position, fx) < 2) g.userData.hitAt = performance.now();
       if (fx.kind === 'hit' && !fx.player) sound.play('impact');
     }
+    const perfect = fx.kind === 'dash' && fx.value === 'PERFECT';
     const g = new THREE.Group();
     g.position.set(fx.x, groundHeight(fx.x, fx.z, this.dimension) + 0.12, fx.z);
-    const r = ring(0.3, fx.color, fx.kind === 'hit' ? 0.035 : 0.07);
+    const r = ring(
+      perfect ? 0.9 : 0.3,
+      fx.color,
+      perfect ? 0.05 : fx.kind === 'hit' ? 0.035 : 0.07,
+    );
     g.add(r);
+    // A perfect dodge is a silver ring and a chime: something you notice before you name it.
+    if (perfect) {
+      const outer = ring(1.5, '#ffffff', 0.03);
+      outer.position.y = 0.02;
+      g.add(outer);
+      if (fx.player === this.snapshot?.self.id) sound.play('perfect');
+    }
     if (!['hit', 'reward'].includes(fx.kind)) {
       this.scene.add(g);
       this.effects.push({ group: g, start: performance.now(), kind: fx.kind });
@@ -1846,19 +1889,47 @@ export class WorldView {
       } else if (label) label.style.opacity = '0';
       if (!settings.reducedMotion) g.rotation.y += 0.01;
     }
+    for (const [id, g] of this.graveMeshes) {
+      const grave = g.userData.grave as { name: string; level: number; cause: string };
+      const near = distance(g.position, this.prediction.position) < 14;
+      const pos = near ? this.project(g.position.x, g.position.y + 2.1, g.position.z) : undefined;
+      const key = `grave-${id}`;
+      let label = this.labels.get(key);
+      if (pos) {
+        if (!label) {
+          label = document.createElement('div');
+          label.className = 'player-label grave-label';
+          this.labelLayer.append(label);
+          this.labels.set(key, label);
+        }
+        label.textContent = `${grave.name} · LV ${grave.level} · ${grave.cause}`;
+        label.style.transform = `translate(-50%,-50%) translate(${pos.x}px,${pos.y}px)`;
+        label.style.opacity = '1';
+      } else if (label) label.style.opacity = '0';
+    }
     if (this.dimension === 'wilds') {
       // Fog and sky drift toward the zone underfoot: atmosphere, never a filter.
       const p = this.playing && s ? this.prediction.position : { x: 0, z: 20 };
       const zone = zoneAt(p.x, p.z),
         biome = BIOMES[zone.id as BiomeId];
-      // Each biome carries its own weather: the fog and the sky follow you across the ring.
-      this.fogTarget
-        .copy(biome ? this.color.set(biome.fog) : FOG_BASE)
-        .lerp(this.color.set(zone.color), 0.26);
-      this.skyTarget.copy(SKY_BASE).lerp(this.color, 0.18);
-      const ease = 1 - Math.exp(-dt * 1.4);
-      (this.scene.fog as THREE.FogExp2).color.lerp(this.fogTarget, ease);
-      (this.scene.background as THREE.Color).lerp(this.skyTarget, ease);
+      // Each biome carries its own weather: the fog, the sky and the chord follow you.
+      if (biome) sound.setAmbient(biome.chord);
+      // While the realm musters, everything turns the colour of the Crown burning.
+      if (this.snapshot?.realm.ending !== undefined) {
+        this.fogTarget.set('#a05a3f');
+        this.skyTarget.set('#5d2f24');
+        const musterEase = 1 - Math.exp(-dt * 0.9);
+        (this.scene.fog as THREE.FogExp2).color.lerp(this.fogTarget, musterEase);
+        (this.scene.background as THREE.Color).lerp(this.skyTarget, musterEase);
+      } else {
+        this.fogTarget
+          .copy(biome ? this.color.set(biome.fog) : FOG_BASE)
+          .lerp(this.color.set(zone.color), 0.26);
+        this.skyTarget.copy(SKY_BASE).lerp(this.color, 0.18);
+        const ease = 1 - Math.exp(-dt * 1.4);
+        (this.scene.fog as THREE.FogExp2).color.lerp(this.fogTarget, ease);
+        (this.scene.background as THREE.Color).lerp(this.skyTarget, ease);
+      }
       if (this.beacons.count && !settings.reducedMotion)
         (this.beacons.material as THREE.MeshBasicMaterial).opacity =
           0.4 + Math.sin(now * 0.0012) * 0.07;

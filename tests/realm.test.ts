@@ -1,7 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { Store } from '../server/database.js';
-import { BUDGET_INTERVAL, Realm } from '../server/realm.js';
+import { BUDGET_INTERVAL, MUSTER_SECONDS, Realm } from '../server/realm.js';
 import { ECOLOGY } from '../shared/biomes.js';
 import { templateOf } from '../shared/instances.js';
 import { layoutFor } from '../shared/layout.js';
@@ -18,6 +18,9 @@ import {
   distance,
   isSafe,
   zoneAt,
+  MAX_LEVEL,
+  MAX_TIER,
+  xpForLevel,
 } from '../shared/content.js';
 import { canMove, inBounds, PROPS } from '../shared/world.js';
 import type { ClassId, ServerMessage } from '../shared/types.js';
@@ -44,14 +47,22 @@ test('all three classes start with valid equipment and distinct combat roles', (
   assert.ok(CLASSES.ranger.speed > CLASSES.arcanist.speed);
   assert.ok(CLASSES.sentinel.hp > CLASSES.ranger.hp);
 });
-test('large XP grants resolve every level, restore vitals, and stop at level 20', () => {
+test('large XP grants resolve every level, restore vitals, and stop at the ceiling', () => {
   const c = createCharacter('arcanist');
   c.hp = 5;
-  assert.ok(grantXp(c, 100000));
-  assert.equal(c.level, 20);
+  assert.ok(grantXp(c, 500000));
+  assert.equal(c.level, MAX_LEVEL);
   assert.equal(c.xp, 0);
   assert.equal(c.hp, stats(c).maxHp);
   assert.equal(grantXp(c, 300), false);
+  // The first twenty levels cost exactly what they always have; thirty costs about three
+  // times as much in total, which is the length of the outer ring.
+  let toTwenty = 0,
+    toThirty = 0;
+  for (let level = 1; level < 20; level++) toTwenty += xpForLevel(level);
+  for (let level = 1; level < MAX_LEVEL; level++) toThirty += xpForLevel(level);
+  assert.equal(toTwenty, 15390);
+  assert.ok(toThirty / toTwenty > 3 && toThirty / toTwenty < 3.8, String(toThirty / toTwenty));
 });
 test('server normalizes diagonal movement and expires stale inputs', () => {
   const { realm, p } = setup();
@@ -287,7 +298,7 @@ test('full inventories do not lose vault items or charge for failed purchases', 
   assert.equal(p.profile.vault.length, 1);
   assert.equal(c.gold, 200);
 });
-test('tempering consumes exact currencies and is capped at tier 6', () => {
+test('tempering consumes exact currencies and is capped at the top tier', () => {
   const { realm, p, c } = setup();
   c.gold = 1000;
   p.profile.embers = 30;
@@ -298,9 +309,9 @@ test('tempering consumes exact currencies and is capped at tier 6', () => {
   assert.equal(item.power, power + 4);
   assert.equal(c.gold, 950);
   assert.equal(p.profile.embers, 25);
-  item.tier = 6;
+  item.tier = MAX_TIER;
   realm.action(p.profile.id, 'upgrade', 'weapon');
-  assert.equal(item.tier, 6);
+  assert.equal(item.tier, MAX_TIER);
   assert.equal(c.gold, 950);
 });
 test('both portals enter distinct shared dungeons and recall always returns home', () => {
@@ -319,24 +330,35 @@ test('both portals enter distinct shared dungeons and recall always returns home
     assert.equal(c.potions, 3);
   }
 });
-test('three distinct wardens unlock the final boss and a victory restarts the cycle', () => {
+test('three seals muster the realm, the Crown opens, and a victory begins a new realm', () => {
   const { realm, p } = setup();
   for (const [i, kind] of ['rootwarden', 'glasswarden', 'duskwarden'].entries()) {
     const e = realm.spawn(kind, 0, -10, 'wilds');
     realm.killEnemy(e, [p]);
     assert.equal(realm.wardens.size, i + 1);
+    // The Sovereign waits out the muster: everyone in the realm gets a minute to gather.
     assert.equal(
       [...realm.enemies.values()].some((e) => e.kind === 'sovereign'),
-      i === 2,
+      false,
     );
   }
+  assert.equal(realm.info().ending, MUSTER_SECONDS);
+  realm.time = realm.endingAt;
+  realm.step();
+  assert.ok([...realm.enemies.values()].some((e) => e.kind === 'sovereign'));
+  assert.equal(realm.info().ending, undefined);
   const boss = [...realm.enemies.values()].find((e) => e.kind === 'sovereign')!;
+  realm.liberation.set('meadow', 400);
   realm.killEnemy(boss, [p]);
   assert.ok(Number.isFinite(realm.resetAt));
   realm.time = realm.resetAt;
   realm.step();
   assert.equal(realm.wardens.size, 0);
-  assert.equal([...realm.enemies.values()].filter((e) => e.kind.endsWith('warden')).length, 3);
+  const seals = ['rootwarden', 'glasswarden', 'duskwarden'];
+  assert.equal([...realm.enemies.values()].filter((e) => seals.includes(e.kind)).length, 3);
+  // A new realm is a new realm: nothing it took back carries over.
+  assert.equal(realm.liberation.get('meadow') ?? 0, 0);
+  assert.equal(realm.graveMarkers.length, 0);
 });
 test('bosses telegraph before firing and escalate their bullet patterns by phase', () => {
   const { realm, p } = setup();

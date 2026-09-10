@@ -4,9 +4,19 @@
 import { Store } from '../server/database.js';
 import { Realm } from '../server/realm.js';
 import { stats } from '../server/model.js';
-import { CLASSES, distance } from '../shared/content.js';
-import { flowTo, layoutFor, type Flow } from '../shared/layout.js';
+import { CLASSES, ENEMIES, distance } from '../shared/content.js';
+import { flowTo, layoutFor, roomAt, type Flow } from '../shared/layout.js';
 import { canMove } from '../shared/world.js';
+/** Whether a shot fired at this target would actually reach it, or stop at a wall. */
+function canSee(from: Vec, to: Vec, dim: Dimension) {
+  const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
+  for (let i = 1; i <= steps; i++)
+    if (
+      !canMove(from.x + ((to.x - from.x) * i) / steps, from.z + ((to.z - from.z) * i) / steps, dim)
+    )
+      return false;
+  return true;
+}
 import { bagItems } from '../shared/loot.js';
 import { compareGear } from '../shared/gear.js';
 import { journeyGoal, journeyTarget } from '../shared/progression.js';
@@ -112,7 +122,17 @@ for (const cls of (process.env.JOURNEY_CLASS
         desired = 0,
         action = '';
       const room = p.dimension === 'wilds' ? undefined : realm.dungeons.state(p.dimension);
-      const enemy = snapshot.enemies.sort((a, b) => distance(a, p) - distance(b, p))[0];
+      // Inside an instance, fight what is in the room with you. A side room that has woken
+      // is not on the way, and chasing it through a wall is not a fight.
+      const instance = p.dimension === 'wilds' ? undefined : layoutFor(p.dimension);
+      const roomOf = (v: Vec) => (instance ? (roomAt(instance, v.x, v.z)?.id ?? -1) : 0);
+      const myRoom = roomOf(p);
+      const enemy = snapshot.enemies.sort(
+        (a, b) =>
+          Number(canSee(p, b, p.dimension)) - Number(canSee(p, a, p.dimension)) ||
+          Number(roomOf(b) === myRoom) - Number(roomOf(a) === myRoom) ||
+          distance(a, p) - distance(b, p),
+      )[0];
       const relevant = goal.enemy && snapshot.enemies.find((e) => e.kind === goal.enemy);
       let fight = relevant && distance(relevant, p) < CLASSES[cls].range ? relevant : enemy;
       if (self.safe && c.hp < s.maxHp * 0.97) {
@@ -157,7 +177,8 @@ for (const cls of (process.env.JOURNEY_CLASS
         } else realm.action(p.profile.id, action as 'interact' | 'delve');
       }
       // Instances are rooms and corridors now, not one open box, so they are routed too.
-      const direct = distance(p, target) < desired + 3;
+      // Close is not the same as reachable: a wall between you and it means walking.
+      const direct = distance(p, target) < desired + 3 && canSee(p, target, p.dimension);
       const routeKey = `${p.dimension}:${Math.round(target.x / 3)},${Math.round(target.z / 3)}`;
       // Instances are rooms and corridors, so inside one the pilot walks a flow field flooded
       // out from the target. The open island keeps the A* it has always used.
@@ -188,6 +209,17 @@ for (const cls of (process.env.JOURNEY_CLASS
           z = i === -2 ? (-dz / d) * Math.min(1, d / (s.speed * 0.4)) : i < 0 ? 0 : Math.sin(a);
         let score = Math.abs(Math.hypot(dx + x * stride, dz + z * stride) - range) * 0.35;
         if (range) score -= ((x * -dz) / d + (z * dx) / d) * 0.2;
+        // A shielded front turns shots aside: walk around it rather than into it.
+        const guard = 'kind' in waypoint ? ENEMIES[(waypoint as { kind: string }).kind]?.guard : 0;
+        if (guard) {
+          const facing =
+            Math.atan2(
+              p.z + z * stride - (waypoint as Vec).z,
+              p.x + x * stride - (waypoint as Vec).x,
+            ) - (waypoint as { angle: number }).angle;
+          const off = Math.abs(Math.atan2(Math.sin(facing), Math.cos(facing)));
+          if (off < guard + 0.2) score += 8;
+        }
         for (const t of range ? [0.1, 0.3, 0.5] : [0.1, 0.2])
           if (!canMove(p.x + x * s.speed * t, p.z + z * s.speed * t, p.dimension)) score += 100;
         for (const b of realm.bullets.values())
@@ -224,6 +256,10 @@ for (const cls of (process.env.JOURNEY_CLASS
           `move ${best.x.toFixed(2)},${best.z.toFixed(2)}`,
           `score ${best.score.toFixed(2)}`,
           `direct ${direct}`,
+          `fire ${fire}`,
+          `fight ${fight ? `${fight.kind}@${fight.x.toFixed(1)},${fight.z.toFixed(1)} hp ${Math.round(fight.hp)}` : 'none'}`,
+          `enemies ${snapshot.enemies.length}`,
+          `angle ${((fight ? Math.atan2(fight.z - p.z, fight.x - p.x) : 0) * 57.3).toFixed(0)}`,
         );
       realm.input(p.profile.id, {
         x: best.x,

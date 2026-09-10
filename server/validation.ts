@@ -25,6 +25,8 @@ const actions = new Set<Action>([
   'track',
   'pin',
   'travel',
+  'party',
+  'friend',
 ]);
 export function parseMessage(raw: string): ClientMessage | null {
   if (raw.length > 4096) return null;
