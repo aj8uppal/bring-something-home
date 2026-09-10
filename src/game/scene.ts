@@ -81,6 +81,19 @@ function mesh(
   m.receiveShadow = true;
   return m;
 }
+/** A throwaway context names the driver, so the real one can be asked for less. */
+function softwareRenderer() {
+  try {
+    const probe = document.createElement('canvas').getContext('webgl2');
+    if (!probe) return false;
+    const debug = probe.getExtension('WEBGL_debug_renderer_info');
+    const name = debug ? String(probe.getParameter(debug.UNMASKED_RENDERER_WEBGL)) : '';
+    probe.getExtension('WEBGL_lose_context')?.loseContext();
+    return /swiftshader|llvmpipe|software/i.test(name);
+  } catch {
+    return false;
+  }
+}
 const BOX = new THREE.BoxGeometry(1, 1, 1),
   ICO = new THREE.IcosahedronGeometry(1, 0),
   OCT = new THREE.OctahedronGeometry(1),
@@ -320,18 +333,16 @@ export class WorldView {
     public canvas: HTMLCanvasElement,
     public labelLayer: HTMLElement,
   ) {
+    // Ask who is drawing before the real renderer exists, because one of the answers
+    // changes how it should be built. Multisampling on a CPU rasterizer multiplies the
+    // fill cost for a smooth edge nobody at ten frames a second is looking at.
+    this.softwareRenderer = softwareRenderer();
     this.renderer = new THREE.WebGLRenderer({
       canvas,
-      antialias: true,
+      antialias: !this.softwareRenderer,
       alpha: false,
       powerPreference: 'high-performance',
     });
-    const gl = this.renderer.getContext(),
-      debug = gl.getExtension('WEBGL_debug_renderer_info');
-    this.softwareRenderer = !!(
-      debug &&
-      /swiftshader|llvmpipe|software/i.test(String(gl.getParameter(debug.UNMASKED_RENDERER_WEBGL)))
-    );
     if (this.softwareRenderer) {
       settings.quality = 'low';
       // Start within a CPU renderer's budget instead of stalling at full resolution
