@@ -394,7 +394,11 @@ loot ownership and full-satchel swaps, inventory comparisons, touch layouts,
 dungeon travel, crafting, recaps, PNG downloads, progression briefing, preparation,
 and direct next-depth rally. Signup rate limits remain enabled; ordinary gameplay
 scenarios use saved test accounts to avoid exhausting the public creation quota.
-A 250 ms movement-packet delay still produces local motion within 150 ms.
+A 250 ms movement-packet delay still produces local motion within one or two
+frames, while the server still reads the traveler at the origin. The bound is
+counted in frames rather than milliseconds: prediction lands in the frame that
+reads the key, so on a software renderer a millisecond bound measures the
+runner's frame time instead of the client.
 Co-op, recovery, and invitation scenarios run their second traveler in an
 independent browser process to represent a second device.
 
