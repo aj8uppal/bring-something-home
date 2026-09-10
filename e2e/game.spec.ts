@@ -1,4 +1,5 @@
 import { test, expect, type Page } from '@playwright/test';
+import { flowTo, layoutFor } from '../shared/layout';
 import { remoteTraveler } from './fixtures';
 async function enter(page: Page, name = 'Aster') {
   const { freshAccount } = await import('./fixtures');
@@ -8,6 +9,26 @@ async function enter(page: Page, name = 'Aster') {
   await page.getByRole('button', { name: 'Enter the wilds', exact: true }).click();
   await expect(page.locator('#hud')).toBeVisible();
   await expect(page.locator('#player-name')).toHaveText(name);
+}
+/**
+ * Chambers are generated, so the altar is wherever this instance put it and the way there
+ * runs through corridors. Follow the instance's own flow field, the same as the checks do.
+ */
+async function walkToAltar(page: Page) {
+  const altar = (await page.locator('#dungeon-progress').getAttribute('data-altar'))!.split(',');
+  const to = { x: Number(altar[0]), z: Number(altar[1]) };
+  const dimension = (await page.locator('#world').getAttribute('data-dimension'))!;
+  const layout = layoutFor(dimension);
+  if (!layout) return walk(page, to.x, to.z);
+  const flow = flowTo(layout, to);
+  for (let hop = 0; hop < 14; hop++) {
+    const raw = (await page.locator('#coordinates').textContent())!.split('/').map(Number);
+    const at = { x: raw[0], z: -raw[1] };
+    if (Math.hypot(at.x - to.x, at.z - to.z) < 3) return;
+    const next = flow.step(at);
+    await walk(page, next.x, next.z);
+  }
+  await walk(page, to.x, to.z);
 }
 async function walk(page: Page, tx: number, tz: number) {
   const held = new Set<string>();
@@ -491,9 +512,9 @@ test('Elder journal attunement, persistent relic crafting, portal, and first cha
   await walk(page, 0, 34);
   await page.keyboard.press('KeyX');
   await expect(page.locator('#zone-name')).toHaveText('The Elder Convergence');
-  await expect(page.locator('#dungeon-progress')).toContainText('1/5');
+  await expect(page.locator('#dungeon-progress')).toContainText(/1\/5/);
   await expect(page.locator('#dungeon-progress')).toContainText('Iron hearts');
-  await walk(page, 0, 17);
+  await walkToAltar(page);
   await expect(page.locator('#interaction')).toContainText('Awaken');
   await page.keyboard.press('KeyX');
   await expect(page.locator('#dungeon-progress')).toContainText('6 guardians remain');

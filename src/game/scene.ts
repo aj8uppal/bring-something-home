@@ -37,6 +37,7 @@ import {
 } from '../../shared/places';
 import { BIOMES } from '../../shared/biomes';
 import { templateOf } from '../../shared/instances';
+import { layoutFor } from '../../shared/layout';
 import { TEMPLATE_BY_ID } from '../../shared/templates';
 import type {
   ClassId,
@@ -297,6 +298,7 @@ export class WorldView {
   pitch = settings.cameraTilt;
   guides: AttackGuides;
   hazardMeshes = new Map<number, THREE.Group>();
+  portalMeshes = new Map<string, THREE.Group>();
   beacons: THREE.InstancedMesh;
   beaconSignature = '';
   fogTarget = FOG_BASE.clone();
@@ -997,22 +999,26 @@ export class WorldView {
     for (const x of [-radius, radius]) box(g, '#afac96', x, 0.3, 0, 0.8, 0.6, 1);
     return g;
   }
+  /**
+   * Draw the instance's generated rooms and corridors. The layout comes from the id, so
+   * every client standing in the same instance builds exactly the same architecture.
+   */
   buildDungeon(dimension: Dimension) {
     const dim = templateOf(dimension);
-    const palette = TEMPLATE_BY_ID.get(dim)?.palette ?? '#8fd8d2';
+    const template = TEMPLATE_BY_ID.get(dim);
+    const palette = template?.palette ?? '#8fd8d2';
     disposeObject(this.dungeon);
     this.dungeon.clear();
+    const layout = layoutFor(dimension);
     const color = dim === 'eclipse' ? '#565775' : dim === 'hollow' ? '#627d7e' : '#8d7769';
-    const floor = mesh(new THREE.BoxGeometry(61, 0.6, 61), color, 0, -0.35, 0);
-    this.dungeon.add(floor);
-    const rng = random(dim === 'hollow' ? 92 : 11);
+    const rng = random((layout?.seed ?? 92) | 1);
     const batches = new Map<
       THREE.BufferGeometry,
       { matrix: THREE.Matrix4; color: THREE.Color }[]
     >();
     const put = (
       geo: THREE.BufferGeometry,
-      color: THREE.ColorRepresentation,
+      c: THREE.ColorRepresentation,
       x: number,
       y: number,
       z: number,
@@ -1026,39 +1032,83 @@ export class WorldView {
       this.dummy.rotation.set(0, rotation, 0);
       this.dummy.updateMatrix();
       if (!batches.has(geo)) batches.set(geo, []);
-      batches.get(geo)!.push({ matrix: this.dummy.matrix.clone(), color: new THREE.Color(color) });
+      batches.get(geo)!.push({ matrix: this.dummy.matrix.clone(), color: new THREE.Color(c) });
     };
-    for (let x = -28; x < 30; x += 4)
-      for (let z = -28; z < 30; z += 4)
-        put(
-          BOX,
-          new THREE.Color(color).multiplyScalar(0.94 + rng() * 0.12),
-          x,
-          0.01,
-          z,
-          3.85,
-          0.06,
-          3.85,
-        );
-    for (let i = -30; i <= 30; i += 5)
-      for (const side of [-1, 1])
-        for (const swap of [false, true])
+    const rects = layout?.rects ?? [{ x: 0, z: 0, w: 60, h: 60 }];
+    for (const rect of rects) {
+      const slab = mesh(
+        new THREE.BoxGeometry(rect.w + 1, 0.6, rect.h + 1),
+        color,
+        rect.x,
+        -0.35,
+        rect.z,
+      );
+      this.dungeon.add(slab);
+      // Flagstones, laid to the room rather than to a fixed grid.
+      for (let x = -rect.w / 2 + 2; x < rect.w / 2; x += 4)
+        for (let z = -rect.h / 2 + 2; z < rect.h / 2; z += 4)
           put(
             BOX,
-            '#7c8379',
-            swap ? side * 31 : i,
-            1.5,
-            swap ? i : side * 31,
-            4.8,
-            3 + rng() * 2,
-            2,
-            swap ? Math.PI / 2 : 0,
+            new THREE.Color(color).multiplyScalar(0.94 + rng() * 0.12),
+            rect.x + x,
+            0.01,
+            rect.z + z,
+            3.85,
+            0.06,
+            3.85,
           );
-    for (const x of [-22, 22])
-      for (const z of [-22, -10, 2, 14]) {
-        put(CYL, '#a9a791', x, 2.5, z, 0.75, 5, 0.75);
-        put(OCT, palette, x, 5.8, z, 0.35, 0.7, 0.35);
+    }
+    for (const room of layout?.rooms ?? []) {
+      // Walls around each room, with the doorways its corridors need left open.
+      const doorways = (layout?.corridors ?? []).filter(
+        (c) =>
+          Math.abs(c.x - room.x) < room.w / 2 + c.w / 2 + 1 &&
+          Math.abs(c.z - room.z) < room.h / 2 + c.h / 2 + 1,
+      );
+      const open = (x: number, z: number) =>
+        doorways.some((c) => Math.abs(x - c.x) <= c.w / 2 + 2 && Math.abs(z - c.z) <= c.h / 2 + 2);
+      for (let i = -room.w / 2; i <= room.w / 2; i += 5)
+        for (const side of [-1, 1]) {
+          const x = room.x + i,
+            z = room.z + (side * room.h) / 2;
+          if (!open(x, z)) put(BOX, '#7c8379', x, 1.5, z, 4.8, 3 + rng() * 2, 2);
+        }
+      for (let i = -room.h / 2; i <= room.h / 2; i += 5)
+        for (const side of [-1, 1]) {
+          const x = room.x + (side * room.w) / 2,
+            z = room.z + i;
+          if (!open(x, z)) put(BOX, '#7c8379', x, 1.5, z, 4.8, 3 + rng() * 2, 2, Math.PI / 2);
+        }
+      // A pillar at each corner, and a lit one in a side room or a secret.
+      const accent =
+        room.kind === 'secret' ? '#f0d79a' : room.kind === 'side' ? '#c9a4ff' : palette;
+      for (const cx of [-1, 1])
+        for (const cz of [-1, 1]) {
+          const x = room.x + cx * (room.w / 2 - 3),
+            z = room.z + cz * (room.h / 2 - 3);
+          put(CYL, '#a9a791', x, 2.5, z, 0.75, 5, 0.75);
+          put(OCT, accent, x, 5.8, z, 0.35, 0.7, 0.35);
+        }
+      if (room.kind !== 'entry') {
+        const sigil = ring(Math.min(room.w, room.h) / 4, accent, 0.08);
+        sigil.position.set(room.x, 0.07, room.z);
+        this.dungeon.add(sigil);
       }
+      if (room.kind === 'keeper' && dim === 'eclipse')
+        for (let i = 0; i < 12; i++) {
+          const a = (i / 12) * Math.PI * 2;
+          const crystal = mesh(
+            OCT,
+            '#b7a4df',
+            room.x + Math.cos(a) * (room.w / 2 - 2),
+            3.5,
+            room.z + Math.sin(a) * (room.h / 2 - 2),
+            0.5,
+          );
+          crystal.scale.set(0.5, 2.5, 0.5);
+          this.dungeon.add(crystal);
+        }
+    }
     for (const [geo, entries] of batches) {
       const batch = new THREE.InstancedMesh(geo, material('#ffffff'), entries.length);
       entries.forEach((entry, i) => {
@@ -1071,26 +1121,6 @@ export class WorldView {
     const portal = this.portal(palette, 1.6);
     portal.position.set(0, 0, 25);
     this.dungeon.add(portal);
-    for (const z of [17, 3, -8]) {
-      const chamber = ring(dim === 'eclipse' ? 12 : 9, palette, 0.025);
-      chamber.position.set(0, 0.065, z);
-      this.dungeon.add(chamber);
-      for (const x of [-16, 16]) {
-        const border = box(this.dungeon, palette, x, 0.055, z, 5, 0.025, 0.12);
-        border.material = material(palette, 0.2);
-      }
-    }
-    if (dim === 'eclipse') {
-      for (let i = 0; i < 12; i++) {
-        const a = (i / 12) * Math.PI * 2;
-        const crystal = mesh(OCT, '#b7a4df', Math.cos(a) * 27, 3.5, Math.sin(a) * 27, 0.5);
-        crystal.scale.set(0.5, 2.5, 0.5);
-        this.dungeon.add(crystal);
-      }
-    }
-    const sigil = ring(6, palette, 0.08);
-    sigil.position.set(0, 0.07, -22);
-    this.dungeon.add(sigil);
   }
   setPreviewClass(classId: ClassId) {
     if (this.preview) {
@@ -1273,6 +1303,33 @@ export class WorldView {
       g.position.set(d.x, surfaceHeight(d.x, d.z, d.dimension), d.z);
       this.lootMeshes.set(d.id, g);
       this.entities.add(g);
+    }
+    // Doors dropped in the world: a portal you can see from the road, on a visible timer.
+    const doors = new Set((s.portals ?? []).map((d) => d.id));
+    for (const [id, g] of this.portalMeshes)
+      if (!doors.has(id)) {
+        this.world.remove(g);
+        disposeObject(g);
+        this.portalMeshes.delete(id);
+        this.removeLabel(`portal-${id}`);
+      }
+    for (const door of s.portals ?? []) {
+      let g = this.portalMeshes.get(door.id);
+      if (!g) {
+        g = this.portal(door.color, 1.8);
+        const platform = mesh(
+          new THREE.CylinderGeometry(3.2, 3.5, 0.36, 14),
+          '#a59e88',
+          0,
+          -0.1,
+          0,
+        );
+        g.add(platform);
+        g.position.set(door.x, groundHeight(door.x, door.z), door.z);
+        this.world.add(g);
+        this.portalMeshes.set(door.id, g);
+      }
+      g.userData.door = door;
     }
     const hazards = new Set((s.hazards ?? []).map((h) => h.id));
     for (const [id, g] of this.hazardMeshes)
@@ -1764,10 +1821,30 @@ export class WorldView {
       }
       this.canvas.dataset.cameraYaw = this.yaw.toFixed(4);
       this.canvas.dataset.beacons = String(this.beacons.count);
+      this.canvas.dataset.dimension = this.dimension;
       this.canvas.dataset.cameraZoom = this.zoom.toFixed(3);
       this.canvas.dataset.cameraPitch = this.pitch.toFixed(2);
       this.canvas.dataset.playerX = p.x.toFixed(3);
       this.canvas.dataset.playerZ = p.z.toFixed(3);
+    }
+    for (const [id, g] of this.portalMeshes) {
+      const door = g.userData.door as { name: string; remaining: number; color: string };
+      const pos = this.project(g.position.x, g.position.y + 4.6, g.position.z);
+      const key = `portal-${id}`;
+      let label = this.labels.get(key);
+      if (pos) {
+        if (!label) {
+          label = document.createElement('div');
+          label.className = 'player-label portal-label';
+          this.labelLayer.append(label);
+          this.labels.set(key, label);
+        }
+        label.style.color = door.color;
+        label.textContent = `${door.name} · ${door.remaining}s`;
+        label.style.transform = `translate(-50%,-50%) translate(${pos.x}px,${pos.y}px)`;
+        label.style.opacity = '1';
+      } else if (label) label.style.opacity = '0';
+      if (!settings.reducedMotion) g.rotation.y += 0.01;
     }
     if (this.dimension === 'wilds') {
       // Fog and sky drift toward the zone underfoot: atmosphere, never a filter.

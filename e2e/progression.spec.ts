@@ -70,7 +70,7 @@ test('an earned warden milestone leads directly to the Archive, with preparation
   await page.locator('[data-action="journey-rally"]').click();
   await expect(page.getByRole('dialog')).toBeHidden();
   await expect(page.locator('#zone-name')).toHaveText('The Sunken Archive');
-  await expect(page.locator('#dungeon-progress')).toContainText('1/3');
+  await expect(page.locator('#dungeon-progress')).toContainText(/1\/[3-5]/);
   await page.keyboard.press('KeyR');
   await page.keyboard.press('KeyJ');
   await expect(page.locator('[data-action="journey-rally"]')).toBeVisible();

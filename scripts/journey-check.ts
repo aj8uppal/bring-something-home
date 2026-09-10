@@ -5,6 +5,7 @@ import { Store } from '../server/database.js';
 import { Realm } from '../server/realm.js';
 import { stats } from '../server/model.js';
 import { CLASSES, distance } from '../shared/content.js';
+import { flowTo, layoutFor, type Flow } from '../shared/layout.js';
 import { canMove } from '../shared/world.js';
 import { bagItems } from '../shared/loot.js';
 import { compareGear } from '../shared/gear.js';
@@ -70,6 +71,7 @@ for (const cls of (process.env.JOURNEY_CLASS
   // The first arc must be walked in order: gate, bag, wear, clear, grove, warden.
   const steps: { id: string; seconds: number }[] = [];
   let weaponAt: number | undefined;
+  let flow: Flow | undefined;
   let seq = 0,
     path: Vec[] = [],
     pathKey = '',
@@ -154,26 +156,37 @@ for (const cls of (process.env.JOURNEY_CLASS
           }
         } else realm.action(p.profile.id, action as 'interact' | 'delve');
       }
-      const direct = distance(p, target) < desired + 3 || p.dimension !== 'wilds';
+      // Instances are rooms and corridors now, not one open box, so they are routed too.
+      const direct = distance(p, target) < desired + 3;
       const routeKey = `${p.dimension}:${Math.round(target.x / 3)},${Math.round(target.z / 3)}`;
-      if (!direct && (routeKey !== pathKey || realm.time > nextPath)) {
+      // Instances are rooms and corridors, so inside one the pilot walks a flow field flooded
+      // out from the target. The open island keeps the A* it has always used.
+      const layout = p.dimension === 'wilds' ? undefined : layoutFor(p.dimension);
+      if (!direct && layout) {
+        if (routeKey !== pathKey) {
+          flow = flowTo(layout, target);
+          pathKey = routeKey;
+        }
+      } else if (!direct && (routeKey !== pathKey || realm.time > nextPath)) {
         path = route(p, target, p.dimension);
         pathKey = routeKey;
         nextPath = realm.time + 3;
       }
-      while (path.length > 1 && distance(p, path[0]) < 1.8) path.shift();
-      const waypoint = direct ? target : (path[0] ?? target),
+      while (!layout && path.length > 1 && distance(p, path[0]) < 1.8) path.shift();
+      const waypoint = direct ? target : layout && flow ? flow.step(p) : (path[0] ?? target),
         range = direct ? desired : 0;
       const dx = p.x - waypoint.x,
         dz = p.z - waypoint.z,
         d = Math.hypot(dx, dz) || 1;
       let best = { x: 0, z: 0, score: Infinity };
+      // Never evaluate a step that overshoots the waypoint, or standing still wins by a hair
+      // and the pilot parks a couple of units short of a corridor mouth forever.
+      const stride = Math.min(s.speed * 0.35, Math.max(0.6, Math.abs(d - range)));
       for (let i = -2; i < 24; i++) {
         const a = (i * Math.PI) / 12,
           x = i === -2 ? (-dx / d) * Math.min(1, d / (s.speed * 0.4)) : i < 0 ? 0 : Math.cos(a),
           z = i === -2 ? (-dz / d) * Math.min(1, d / (s.speed * 0.4)) : i < 0 ? 0 : Math.sin(a);
-        let score =
-          Math.abs(Math.hypot(dx + x * s.speed * 0.35, dz + z * s.speed * 0.35) - range) * 0.35;
+        let score = Math.abs(Math.hypot(dx + x * stride, dz + z * stride) - range) * 0.35;
         if (range) score -= ((x * -dz) / d + (z * dx) / d) * 0.2;
         for (const t of range ? [0.1, 0.3, 0.5] : [0.1, 0.2])
           if (!canMove(p.x + x * s.speed * t, p.z + z * s.speed * t, p.dimension)) score += 100;
@@ -198,6 +211,20 @@ for (const cls of (process.env.JOURNEY_CLASS
         if (score < best.score) best = { x, z, score };
       }
       const fire = !!fight && !self.safe && room?.status !== 'ready' && room?.status !== 'cleared';
+      if (process.env.JTRACE && realm.time > 1200 && Math.round(realm.time * 20) % 40 === 0)
+        console.error(
+          'JT',
+          cls,
+          realm.time.toFixed(1),
+          `p ${p.x.toFixed(1)},${p.z.toFixed(1)}`,
+          `dim ${p.dimension}`,
+          `target ${target.x.toFixed(1)},${target.z.toFixed(1)}`,
+          `way ${waypoint.x.toFixed(1)},${waypoint.z.toFixed(1)}`,
+          `path ${path.length}`,
+          `move ${best.x.toFixed(2)},${best.z.toFixed(2)}`,
+          `score ${best.score.toFixed(2)}`,
+          `direct ${direct}`,
+        );
       realm.input(p.profile.id, {
         x: best.x,
         z: best.z,

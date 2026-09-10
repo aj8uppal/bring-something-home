@@ -4,6 +4,7 @@ import { Store } from '../server/database.js';
 import { BUDGET_INTERVAL, Realm } from '../server/realm.js';
 import { ECOLOGY } from '../shared/biomes.js';
 import { templateOf } from '../shared/instances.js';
+import { layoutFor } from '../shared/layout.js';
 import { WORLD_EVENTS } from '../shared/events.js';
 import { createCharacter, grantXp, makeItem, stats } from '../server/model.js';
 import {
@@ -76,8 +77,15 @@ test('replayed input sequence cannot change movement or fire state', () => {
 test('terrain collisions and island boundaries are enforced', () => {
   assert.equal(inBounds(100, 0), true, 'the outer ring is walkable');
   assert.equal(inBounds(200, 0), false, 'the wilds still end');
-  assert.equal(inBounds(30, 0, 'hollow'), false);
-  assert.ok(inBounds(20, 20, 'hollow'));
+  // A generated instance is bounded by its own rooms, not by a fixed square.
+  const store = new Store(':memory:'),
+    realm = new Realm('bounds', 'Bounds', store);
+  const run = realm.dungeons.open('hollow');
+  const layout = layoutFor(run.id)!;
+  assert.ok(inBounds(0, 22, run.id), 'the entry room is standable');
+  assert.equal(inBounds(layout.bounds.maxX + 20, 0, run.id), false, 'and the rooms end');
+  for (const room of layout.rooms) assert.ok(inBounds(room.x, room.z, run.id), room.name);
+  store.close();
   const rock = PROPS.find((p) => p.radius > 0)!;
   assert.equal(canMove(rock.x, rock.z, 'wilds'), false);
   assert.equal(canMove(0, 20, 'wilds'), true);

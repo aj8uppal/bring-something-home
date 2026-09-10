@@ -9,3 +9,4 @@ playwright-report/
 .DS_Store
 release/*.tar.gz
 release/*.sha256
+scripts/.probe/

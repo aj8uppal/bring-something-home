@@ -1,4 +1,5 @@
-import { DUNGEONS } from '../shared/content';
+import { templateOf } from '../shared/instances';
+import { TEMPLATE_BY_ID } from '../shared/templates';
 import { MODIFIERS, type Modifier } from '../shared/endgame';
 import type { ExpeditionResult } from '../shared/types';
 import { runDuration } from './rally-ui';
@@ -11,7 +12,8 @@ export async function saveVictoryCard(name: string, run: ExpeditionResult, invit
   canvas.height = 630;
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas unavailable');
-  const color = DUNGEONS[run.dimension].color,
+  const rows = TEMPLATE_BY_ID.get(templateOf(run.dimension));
+  const color = rows?.color ?? '#8fd8d2',
     full = run.chambers === run.totalChambers;
   const glow = ctx.createRadialGradient(975, 180, 10, 780, 250, 850);
   glow.addColorStop(0, '#324747');
@@ -50,7 +52,7 @@ export async function saveVictoryCard(name: string, run: ExpeditionResult, invit
   };
   write('BRING SOMETHING HOME', 64, 77, 20, '#e6cd94');
   write(full ? 'A STORM WORTH REMEMBERING' : 'A KEEPER BROUGHT DOWN TOGETHER', 64, 139, 15, color);
-  write(DUNGEONS[run.dimension].name, 60, 217, 60, '#fff2d8', 'Georgia, serif');
+  write(rows?.name ?? run.dimension, 60, 217, 60, '#fff2d8', 'Georgia, serif');
   write(
     run.dimension === 'eclipse'
       ? `DEPTH ${run.depth}  /  ${MODIFIERS[run.modifier as Modifier]?.name.toUpperCase() ?? ''}${run.personalBest ? '  /  PERSONAL BEST' : ''}`

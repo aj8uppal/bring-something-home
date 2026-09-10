@@ -9,7 +9,7 @@ import {
 } from '../shared/loot.js';
 import { Dungeons } from './dungeons.js';
 import { Grid } from './grid.js';
-import { ensureLegacy, legacyOf, MAX_DEPTH, relicCost } from '../shared/endgame.js';
+import { depthCap, ensureLegacy, legacyOf, MAX_DEPTH, relicCost } from '../shared/endgame.js';
 import { attackPlan } from '../shared/patterns.js';
 import {
   combatStats,
@@ -40,7 +40,7 @@ import {
 } from '../shared/content.js';
 import { canMove, inBounds, move, random, shortcutAt } from '../shared/world.js';
 import { templateOf } from '../shared/instances.js';
-import { TEMPLATE_BY_ID } from '../shared/templates.js';
+import { PORTAL_DROPS, TEMPLATE_BY_ID } from '../shared/templates.js';
 import { BIOMES, ECOLOGY, ECOLOGY_BY_PLACE, type Ecology } from '../shared/biomes.js';
 import { BIOME_PLACES, PLACE_BY_ID, WANDERING_STAR, type BiomeId } from '../shared/places.js';
 import { EVENT_BY_ID, WORLD_EVENTS, type EventState, type WorldEvent } from '../shared/events.js';
@@ -68,6 +68,7 @@ import type {
   PlayerState,
   Profile,
   RealmInfo,
+  PortalState,
   RosterEntry,
   ServerMessage,
 } from '../shared/types.js';
@@ -118,6 +119,8 @@ interface Enemy extends EnemyState {
   noRespawn?: boolean;
   /** The setpiece that owns this creature, so clearing one takes its whole encounter with it. */
   setpiece?: string;
+  /** The optional side room this creature belongs to. Side rooms never gate the main run. */
+  sideRoom?: number;
   nest?: boolean;
   /** Behaviour state: a charger's committed rush, a summoner's cooldown, a lantern's reach. */
   rushUntil?: number;
@@ -189,6 +192,11 @@ interface Pack {
   radius: number;
 }
 export const BUDGET_INTERVAL = 5;
+/** How long a dropped door stands open, and how many may stand open in one realm at once. */
+export const PORTAL_SECONDS = 80;
+export const MAX_OPEN_PORTALS = 8;
+/** How fast a shielded creature can bring its front around, in radians per second. */
+const BULWARK_TURN = 1.2;
 /** The widest creature in the roster, so a swept-shot query can never miss one. */
 const MAX_ENEMY_RADIUS = Math.max(...Object.values(ENEMIES).map((e) => e.radius));
 function segmentDistance(px: number, pz: number, ax: number, az: number, bx: number, bz: number) {
@@ -889,6 +897,14 @@ export class Realm {
         return;
       }
       if (p.dimension === 'wilds') {
+        // A door on the ground is entered exactly the way a Hearth portal is.
+        const door = [...this.portals.values()]
+          .filter((q) => distance(q, p) < 4.5)
+          .sort((a, b) => distance(a, p) - distance(b, p))[0];
+        if (door) {
+          this.enterDungeon(p, door.instance);
+          return;
+        }
         const landmark = LANDMARKS.find((l) => distance(l, p) < 5);
         if (
           landmark?.id === 'hollow' ||
@@ -964,22 +980,39 @@ export class Realm {
       return;
     }
     if (action === 'attune') {
-      const depth = Number(itemId),
+      // `template:depth`, or a bare number, which older clients send for the Elder ladder.
+      const [rawTemplate, rawDepth] = (itemId ?? '').includes(':')
+        ? itemId!.split(':')
+        : ['eclipse', itemId ?? ''];
+      const template = rawTemplate,
+        depth = Number(rawDepth),
         legacy = ensureLegacy(p.profile);
+      const known = TEMPLATE_BY_ID.get(template);
+      const best =
+        template === 'eclipse'
+          ? Math.max(legacy.highestDepth, legacy.bestDepths?.eclipse ?? 0)
+          : (legacy.bestDepths?.[template] ?? 0);
       if (
+        !known ||
         !Number.isInteger(depth) ||
         depth < 1 ||
-        depth > MAX_DEPTH ||
-        depth > legacy.highestDepth + 1 ||
-        !p.profile.victories
+        depth > depthCap(template) ||
+        depth > best + 1 ||
+        (template === 'eclipse' && !p.profile.victories)
       ) {
-        this.notice(p, 'Clear the previous Elder depth before attuning this one.', 'bad');
+        this.notice(
+          p,
+          `Clear depth ${Math.max(1, depth - 1)} of ${known?.name ?? 'this door'} before attuning deeper.`,
+          'bad',
+        );
         return;
       }
-      legacy.selectedDepth = depth;
+      if (template === 'eclipse') legacy.selectedDepth = depth;
+      legacy.selectedDepths ??= {};
+      legacy.selectedDepths[template] = depth;
       this.notice(
         p,
-        `Attuned to Elder depth ${depth}. Applies when your group starts a new expedition.`,
+        `Attuned to ${known.name} depth ${depth}. Applies when your group opens a new door.`,
         'good',
       );
     } else if (action === 'craft') {
@@ -1368,6 +1401,7 @@ export class Realm {
     }
     this.updateHazards(live);
     this.updateSetpieces(dt);
+    this.updatePortals();
     this.dungeons.step();
     this.updateEvent(dt);
     if (this.tick % 2 === 0) this.broadcast();
@@ -1521,7 +1555,15 @@ export class Realm {
     e.phase = phase;
     const windup = def.elder ? 1 : e.boss ? 0.85 : 0.6;
     const telegraph = near <= def.range && e.nextFire - this.time <= windup;
-    if (!e.aiming) e.angle = Math.atan2(target.z - e.z, target.x - e.x);
+    if (!e.aiming) {
+      const want = Math.atan2(target.z - e.z, target.x - e.x);
+      if (def.guard) {
+        // A bulwark turns, it does not snap. Getting inside its guard is the counterplay,
+        // and a lone traveler can do it by closing the distance rather than circling wide.
+        const delta = Math.atan2(Math.sin(want - e.angle), Math.cos(want - e.angle));
+        e.angle += Math.max(-BULWARK_TURN * dt, Math.min(BULWARK_TURN * dt, delta));
+      } else e.angle = want;
+    }
     // A broken attack costs the creature its next pattern and a moment on its feet.
     if (this.time < (e.staggerUntil ?? 0)) {
       e.telegraph = 0;
@@ -1878,6 +1920,7 @@ export class Realm {
         : undefined,
     );
     const def = ENEMIES[e.kind];
+    if (!e.boss && !e.runId && e.dimension === 'wilds' && !e.noRespawn) this.rollPortal(e);
     if (e.setpiece && (e.nest || e.fixed)) {
       const slot = SETPIECE_SLOTS.find((s) => s.id === e.setpiece);
       const piece = this.setpieces.get(e.setpiece);
@@ -2036,6 +2079,61 @@ export class Realm {
       this.sync(p, e.boss || leveled);
     }
     this.dungeons.killed(e, eligible);
+  }
+  /**
+   * Creatures drop doors. Hunting a family therefore means hunting for its door, and the
+   * shout in realm chat that one just opened is the thing that makes a realm feel alive.
+   */
+  rollPortal(e: Enemy) {
+    const template = PORTAL_DROPS.get(e.kind);
+    if (!template || this.portals.size >= MAX_OPEN_PORTALS) return;
+    if (this.rng() >= template.drops!.chance) return;
+    const place = zoneAt(e.x, e.z);
+    const run = this.dungeons.open(template.id, 1, 'the wilds', PORTAL_SECONDS);
+    const portal: Portal = {
+      id: run.id,
+      instance: run.id,
+      template: template.id,
+      name: template.name,
+      x: e.x,
+      z: e.z,
+      place: place.id,
+      color: template.color,
+      depth: 1,
+      expiresAt: this.time + PORTAL_SECONDS,
+      openedBy: e.name,
+    };
+    this.portals.set(run.id, portal);
+    this.effect('portal', { x: e.x, z: e.z, dimension: 'wilds' }, template.color);
+    this.chat(
+      'The Hearth',
+      `${template.name} has opened in ${place.name}. ${PORTAL_SECONDS} seconds before the door closes.`,
+      true,
+    );
+  }
+  /** Doors close on their own. Nobody inside is ever moved. */
+  updatePortals() {
+    for (const [id, portal] of this.portals)
+      if (portal.expiresAt <= this.time) {
+        this.portals.delete(id);
+        this.chat('The Hearth', `${portal.name} has closed.`, true);
+      }
+  }
+  portalStates(): PortalState[] {
+    return [...this.portals.values()].map((portal) => ({
+      id: portal.id,
+      instance: portal.instance,
+      template: portal.template,
+      name: portal.name,
+      place: portal.place,
+      color: portal.color,
+      depth: portal.depth,
+      x: portal.x,
+      z: portal.z,
+      remaining: Math.max(0, Math.ceil(portal.expiresAt - this.time)),
+      population: this.dungeons.occupants(portal.instance).length,
+      openedBy: portal.openedBy,
+    }));
   }
   enterDungeon(p: Player, target: Dimension) {
     const run = this.dungeons.enter(p, target);
@@ -2389,6 +2487,7 @@ export class Realm {
     const roster = this.time - this.lastRoster >= 1 - 1e-6 ? this.roster() : undefined;
     if (roster) this.lastRoster = this.time;
     const setpieces = roster ? this.setpieceStates() : undefined;
+    const portals = roster && this.portals.size ? this.portalStates() : undefined;
     // One realm summary per broadcast, not one per traveler: it walks every creature.
     const realm = this.info();
     this.enemyGrid.fill(this.enemies.values());
@@ -2461,6 +2560,7 @@ export class Realm {
         event: this.event,
         ...(roster ? { roster } : {}),
         ...(setpieces ? { setpieces } : {}),
+        ...(portals ? { portals } : {}),
         ...(this.setpieceFor(p) ? { setpiece: this.setpieceFor(p) } : {}),
       });
     }

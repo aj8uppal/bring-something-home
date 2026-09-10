@@ -93,7 +93,22 @@ export interface Profile {
     bestTimes: Record<string, number>;
     /** Deepest clear per template, which is what a depth dial is gated on. */
     bestDepths?: Record<string, number>;
+    /** The depth this account has chosen to open each template at, next time. */
+    selectedDepths?: Record<string, number>;
   };
+}
+/** A dropped door, as the atlas and the rally board see it. */
+export interface PortalState extends Vec {
+  id: string;
+  instance: string;
+  template: string;
+  name: string;
+  place: string;
+  color: string;
+  depth: number;
+  remaining: number;
+  population: number;
+  openedBy: string;
 }
 export interface ExpeditionResult {
   id: string;
@@ -265,6 +280,8 @@ export interface Snapshot {
   roster?: RosterEntry[];
   /** Realm-wide setpiece state, sent with the roster once a second. */
   setpieces?: import('./setpieces.js').SetpieceState[];
+  /** Doors standing open in the world right now, with the time left on each. */
+  portals?: PortalState[];
   /** The setpiece the traveler is standing inside, if any. */
   setpiece?: {
     id: string;

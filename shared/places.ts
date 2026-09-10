@@ -1,3 +1,4 @@
+import { templateOf } from './instances.js';
 import type { Dimension, DungeonId, Vec } from './types.js';
 
 /**
@@ -542,6 +543,12 @@ export const SHORTCUTS: { id: string; name: string; from: Vec; to: Vec; radius: 
   },
 ];
 
+/**
+ * Places for templates that have no fixed door in the world. `shared/templates.ts` fills
+ * this in on import, which keeps the table of doors next to the doors without making the
+ * place table depend on it.
+ */
+export const GENERATED_PLACES = new Map<string, Place>();
 export const PLACE_BY_ID = new Map(PLACES.map((p) => [p.id, p]));
 export const placeById = (id: string | undefined) => (id ? PLACE_BY_ID.get(id) : undefined);
 
@@ -574,7 +581,13 @@ export const WANDERING_STAR = PLACE_BY_ID.get('wandering-star')!;
  * The island resolves exactly as it always has. Beyond it the seven biomes tile the whole
  * ring by nearest centre, so no square of the outer world belongs to nobody. */
 export function placeAt(x: number, z: number, dimension: Dimension = 'wilds'): Place {
-  if (dimension !== 'wilds') return PLACES.find((p) => p.dimension === dimension) ?? OVERWORLD[1];
+  // An instance id names a template; the place is the door that template belongs to.
+  if (dimension !== 'wilds') {
+    const template = templateOf(dimension);
+    return (
+      PLACES.find((p) => p.dimension === template) ?? GENERATED_PLACES.get(template) ?? OVERWORLD[1]
+    );
+  }
   if (Math.hypot(x - ISLAND.x, z - ISLAND.z) < ISLAND.radius)
     return ISLAND_PLACES.find((p) => Math.hypot(x - p.x, z - p.z) < p.radius) ?? OVERWORLD[1];
   return BIOME_PLACES[biomeIndex(x, z)];

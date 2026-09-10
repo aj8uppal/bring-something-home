@@ -1,4 +1,6 @@
 import { regionGuide } from './progression-ui';
+import { templateOf } from '../shared/instances';
+import { templateName } from '../shared/templates';
 export { inventoryPanel, pickupNotice, comparisonTable } from './equipment-ui';
 export { journalPanel } from './expedition-ui';
 export { rallyPanel, recapPanel } from './rally-ui';
@@ -167,7 +169,7 @@ export function travelerPlace(p: RosterEntry) {
     ? isSafe(p, 'wilds')
       ? 'At the Hearth'
       : zoneAt(p.x, p.z).name
-    : DUNGEONS[p.dimension].name;
+    : templateName(templateOf(p.dimension));
 }
 /** The travel-to control. Eligibility is only advisory here; the server decides. */
 export function travelRow(
@@ -224,7 +226,7 @@ export function atlasPanel(
 ) {
   const safe = !!snapshot?.self.safe;
   const target = roster.find((p) => p.id === selected);
-  return `<div class="atlas-wrap"><canvas id="atlas" width="900" height="720" aria-label="Map of the shared realm"></canvas></div>${travelRow(target, safe, travelCooldown)}<div class="atlas-caption">${snapshot?.self.dimension !== 'wilds' && snapshot ? `You are in ${DUNGEONS[snapshot.self.dimension].name}. Press R to return to the Hearth.` : roster.length > 1 ? 'Click a traveler’s name to travel to them from the Hearth. Click a place to pin it: the compass and minimap follow your pin until you click it again.' : 'Click a place to pin it. Signposts at each road fork show the level ahead, and warden light columns mark the seals still standing.'}</div>${regionGuide()}<button class="small-button" data-panel="journal">Your next step <kbd>J</kbd></button><button class="small-button" data-game="recall">${icon('home')} Recall to the Last Hearth <kbd>R</kbd></button>`;
+  return `<div class="atlas-wrap"><canvas id="atlas" width="900" height="720" aria-label="Map of the shared realm"></canvas></div>${travelRow(target, safe, travelCooldown)}<div class="atlas-caption">${snapshot?.self.dimension !== 'wilds' && snapshot ? `You are in ${templateName(templateOf(snapshot.self.dimension))}. Press R to return to the Hearth.` : roster.length > 1 ? 'Click a traveler’s name to travel to them from the Hearth. Click a place to pin it: the compass and minimap follow your pin until you click it again.' : 'Click a place to pin it. Signposts at each road fork show the level ahead, and warden light columns mark the seals still standing.'}</div>${regionGuide()}<button class="small-button" data-panel="journal">Your next step <kbd>J</kbd></button><button class="small-button" data-game="recall">${icon('home')} Recall to the Last Hearth <kbd>R</kbd></button>`;
 }
 
 export function reportPanel(name: string) {

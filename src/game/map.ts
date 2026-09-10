@@ -2,6 +2,7 @@ import { CLASSES, HAVEN } from '../../shared/content';
 import { ISLAND, propsInBox, PROPS } from '../../shared/world';
 import { WILDS_RADIUS } from '../../shared/places';
 import { templateOf } from '../../shared/instances';
+import { layoutFor } from '../../shared/layout';
 import {
   DUNGEON_PLACES,
   OVERWORLD,
@@ -306,15 +307,51 @@ function drawInterior(
   const large = view.mode === 'atlas';
   const cx = w / 2,
     cy = h * (large ? 0.51 : 0.5);
-  const s = (Math.min(w, h) / (large ? 196 : 189)) * 2;
-  const at: Project = (x, z) => [cx + x * s, cy + z * s] as const;
+  const layoutBounds = layoutFor(snapshot.self.dimension)?.bounds;
+  const spanZ = layoutBounds ? layoutBounds.maxZ - layoutBounds.minZ + 24 : 96;
+  const spanX = layoutBounds ? layoutBounds.maxX - layoutBounds.minX + 24 : 96;
+  const s = large
+    ? Math.min(w / spanX, h / spanZ)
+    : (Math.min(w, h) / (view.span ?? MINIMAP_SPANS[1])) * 2;
+  const origin =
+    large && layoutBounds
+      ? {
+          x: (layoutBounds.minX + layoutBounds.maxX) / 2,
+          z: (layoutBounds.minZ + layoutBounds.maxZ) / 2,
+        }
+      : { x: view.self?.x ?? snapshot.self.x, z: view.self?.z ?? snapshot.self.z };
+  const at: Project = (x, z) => [cx + (x - origin.x) * s, cy + (z - origin.z) * s] as const;
   const template = templateOf(snapshot.self.dimension);
-  ctx.fillStyle =
-    template === 'hollow' ? '#455e5b' : template === 'eclipse' ? '#49445f' : '#615246';
+  const layout = layoutFor(snapshot.self.dimension);
+  const floor = template === 'hollow' ? '#455e5b' : template === 'eclipse' ? '#49445f' : '#615246';
   ctx.strokeStyle = '#bea779';
   ctx.lineWidth = 2;
-  ctx.fillRect(cx - 30 * s, cy - 30 * s, 60 * s, 60 * s);
-  ctx.strokeRect(cx - 30 * s, cy - 30 * s, 60 * s, 60 * s);
+  // The generated rooms, drawn where they actually are. Side rooms and the secret read
+  // differently, so a map is a reason to walk somewhere rather than a picture of a box.
+  if (layout) {
+    for (const rect of layout.corridors) {
+      const [x, y] = at(rect.x, rect.z);
+      ctx.fillStyle = floor;
+      ctx.fillRect(x - (rect.w / 2) * s, y - (rect.h / 2) * s, rect.w * s, rect.h * s);
+    }
+    for (const room of layout.rooms) {
+      const [x, y] = at(room.x, room.z);
+      ctx.fillStyle = floor;
+      ctx.fillRect(x - (room.w / 2) * s, y - (room.h / 2) * s, room.w * s, room.h * s);
+      ctx.strokeStyle =
+        room.kind === 'secret' ? '#f0d79a' : room.kind === 'side' ? '#c9a4ff' : '#bea779';
+      ctx.strokeRect(x - (room.w / 2) * s, y - (room.h / 2) * s, room.w * s, room.h * s);
+      if (large) {
+        ctx.font = '9px system-ui';
+        ctx.fillStyle = ctx.strokeStyle + 'cc';
+        ctx.fillText(room.name.toUpperCase(), x, y - (room.h / 2) * s - 4);
+      }
+    }
+  } else {
+    ctx.fillStyle = floor;
+    ctx.fillRect(cx - 30 * s, cy - 30 * s, 60 * s, 60 * s);
+    ctx.strokeRect(cx - 30 * s, cy - 30 * s, 60 * s, 60 * s);
+  }
   drawLive(ctx, snapshot, at, large, large);
   if (snapshot.dungeon?.status === 'ready') {
     const [ax, ay] = at(snapshot.dungeon.altar.x, snapshot.dungeon.altar.z);
@@ -335,9 +372,10 @@ function drawInterior(
   const self = view.self ?? snapshot.self;
   const [px, py] = at(self.x, self.z);
   drawSelf(ctx, px, py, self.angle);
-  // The way home, always in the same corner of the room.
+  // The way home, drawn where it stands rather than in a fixed corner.
+  const [hx, hy] = at(0, 25);
   ctx.fillStyle = '#addad2';
-  ctx.fillRect(cx - 4, cy + 25 * s - 4, 8, 8);
+  ctx.fillRect(hx - 4, hy - 4, 8, 8);
   return hits;
 }
 
@@ -608,6 +646,26 @@ export function drawMap(canvas: HTMLCanvasElement, view: MapView): MapHit[] {
       hits,
       w,
     );
+    // Doors standing open in the world, with the seconds left on each.
+    for (const portal of snapshot.portals ?? []) {
+      const [x, y] = at(portal.x, portal.z);
+      ctx.strokeStyle = portal.color;
+      ctx.fillStyle = portal.color + '55';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(x, y, large ? 7 : 6, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+      if (large) {
+        ctx.font = 'bold 9px system-ui';
+        ctx.fillStyle = portal.color;
+        ctx.fillText(
+          `${portal.name.toUpperCase()} · ${portal.remaining}s${portal.population ? ` · ${portal.population} inside` : ''}`,
+          x,
+          y - 12,
+        );
+      }
+    }
     // Live setpieces: a ring you can see from anywhere on the atlas, with its own progress.
     for (const piece of snapshot.setpieces ?? []) {
       if (piece.status !== 'active') continue;
@@ -705,6 +763,9 @@ function edgeMarkers(view: MapView): Marker[] {
       color: snapshot.event.beacon ?? MAP_COLORS.event,
       glyph: '★',
     });
+  // An open door is the most urgent thing on the map: it is on a timer.
+  for (const portal of snapshot?.portals ?? [])
+    markers.push({ x: portal.x, z: portal.z, color: portal.color, glyph: '◈' });
   // Live setpieces are the other reason to leave the road, so they get an edge chevron too.
   for (const piece of snapshot?.setpieces ?? [])
     if (piece.status === 'active')

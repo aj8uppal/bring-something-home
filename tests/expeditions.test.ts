@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { templateOf } from '../shared/instances.js';
 import { Store } from '../server/database.js';
-import { Realm, type Player } from '../server/realm.js';
+import { PORTAL_SECONDS, Realm, type Player } from '../server/realm.js';
+import { generateLayout, layoutFor } from '../shared/layout.js';
+import { TEMPLATE_BY_ID } from '../shared/templates.js';
+import { inBounds } from '../shared/world.js';
 import { makeItem, stats } from '../server/model.js';
 import { DUNGEONS, ENEMIES } from '../shared/content.js';
 import { ensureLegacy, EXPEDITIONS, MAX_DEPTH } from '../shared/endgame.js';
@@ -27,14 +30,26 @@ function enter(realm: Realm, p: Player, dim: DungeonId) {
   realm.action(p.profile.id, 'interact');
   assert.equal(templateOf(p.dimension), dim);
 }
-function clearStage(realm: Realm, p: Player) {
+function clearRun(realm: Realm, p: Player, crew: Player[] = []) {
+  for (
+    let guard = 0;
+    guard < 14 && realm.dungeons.state(p.dimension)?.status !== 'cleared';
+    guard++
+  )
+    clearStage(realm, p, crew);
+}
+function clearStage(realm: Realm, p: Player, crew: Player[] = []) {
   const dim = p.dimension as DungeonId;
   const state = realm.dungeons.state(dim)!;
   Object.assign(p, state.altar);
+  for (const ally of crew) Object.assign(ally, state.altar);
   realm.dungeons.interact(p);
   assert.equal(realm.dungeons.state(dim)!.status, 'active');
-  for (const e of [...realm.enemies.values()].filter((e) => e.dimension === dim)) {
+  for (const e of [...realm.enemies.values()].filter(
+    (e) => e.dimension === dim && e.sideRoom === undefined,
+  )) {
     Object.assign(p, { x: e.x, z: e.z });
+    for (const ally of crew) Object.assign(ally, { x: e.x, z: e.z });
     e.contributors.set(p.profile.id, realm.time);
     realm.killEnemy(e, [...realm.players.values()]);
   }
@@ -46,7 +61,7 @@ test('dungeon chambers require nearby altar activation and never respawn behind 
   assert.equal(realm.enemies.size, 0);
   realm.dungeons.interact(p);
   assert.equal(realm.enemies.size, 0, 'entry is outside altar activation range');
-  for (let i = 0; i < 3; i++) clearStage(realm, p);
+  clearRun(realm, p);
   assert.equal(realm.dungeons.state('hollow')!.status, 'cleared');
   assert.equal(realm.respawns.length, 0);
   assert.equal(ensureLegacy(p.profile).shards, 5, 'two keeper shards plus three clear shards');
@@ -118,9 +133,8 @@ test('shared expeditions cannot be reset by a late arrival or award a clear for 
   late.profile.character!.level = 20;
   enter(realm, late, 'eclipse');
   assert.equal(realm.dungeons.state('eclipse')!.stage, 5);
-  late.x = 0;
-  late.z = -12;
-  clearStage(realm, p);
+  // Credit needs presence at the fight, not at the door: stand with the keeper.
+  clearStage(realm, p, [late]);
   assert.equal(ensureLegacy(p.profile).clears, 1);
   assert.equal(ensureLegacy(late.profile).clears, 0);
   assert.equal(
@@ -303,8 +317,8 @@ test('depth and group health scaling compose without dropping the expedition mul
   assert.ok(base > ENEMIES.tideelder.hp * 2);
   const ally = realm.add(store.create('Ally').profile, 'sentinel', () => {});
   ally.dimension = p.dimension;
-  ally.x = 0;
-  ally.z = 0;
+  ally.x = boss.x + 3;
+  ally.z = boss.z + 3;
   p.x = boss.x;
   p.z = boss.z + 2;
   realm.input(p.profile.id, { x: 0, z: 0, angle: -Math.PI / 2, fire: true, seq: 1 });
@@ -390,7 +404,7 @@ test('rally travel requires sanctuary and respects Elder progression and occupie
     realm.action(p.profile.id, 'rally', 'hollow');
     assert.equal(templateOf(p.dimension), 'hollow');
     assert.equal(p.z, 22);
-    for (let i = 0; i < 3; i++) clearStage(realm, p);
+    clearRun(realm, p);
     const previous = realm.dungeons.run('hollow')!.id;
     const friend = realm.add(store.create('Friend').profile, 'ranger', () => {});
     realm.action(friend.profile.id, 'rally', 'hollow');
@@ -443,17 +457,19 @@ test('a persisted clear recap distinguishes full clears from late assists and su
   try {
     realm.action(p.profile.id, 'rally', 'hollow');
     realm.time = 10;
-    clearStage(realm, p);
-    realm.time += 20;
-    clearStage(realm, p);
-    realm.time += 30;
+    // A generated run is three to five chambers; the recap contract does not depend on which.
+    const stages = realm.dungeons.state(p.dimension)!.stages;
+    for (let i = 0; i < stages - 1; i++) {
+      clearStage(realm, p);
+      realm.time += 25;
+    }
     const friend = realm.add(store.create('Late Light').profile, 'ranger', () => {});
     realm.action(friend.profile.id, 'rally', 'hollow');
-    Object.assign(friend, { x: 0, z: -20 });
-    clearStage(realm, p);
+    clearStage(realm, p, [friend]);
     const result = p.profile.lastExpedition!;
-    assert.equal(result.chambers, 3);
-    assert.equal(result.elapsed, 50);
+    assert.equal(result.chambers, stages);
+    assert.equal(result.totalChambers, stages);
+    assert.equal(result.elapsed, 25 * (stages - 1));
     assert.equal(result.shards, 3, 'only the clear bonus is attributed to the recap');
     assert.equal(result.gold, 80);
     assert.deepEqual(new Set(result.crew.map((c) => c.name)), new Set(['Lumen', 'Late Light']));
@@ -485,6 +501,151 @@ test('relic tracking persists a validated goal and accurately exposes the next g
     assert.equal(relicChase(p.profile, 'constructor'), undefined);
     realm.action(p.profile.id, 'track', '');
     assert.equal(store.authenticate(account.token)!.trackedRelic, undefined);
+  } finally {
+    store.close();
+  }
+});
+
+test('two runs of a template differ, and one instance is identical for everyone in it', () => {
+  const { realm, store } = setup();
+  try {
+    const first = realm.dungeons.open('hollow');
+    const second = realm.dungeons.open('hollow');
+    assert.notEqual(first.id, second.id, 'each run is its own instance');
+    const a = layoutFor(first.id)!,
+      b = layoutFor(second.id)!;
+    const shape = (l: typeof a) =>
+      l.rooms.map((r) => `${r.kind}:${r.x},${r.z},${r.w}x${r.h}`).join('|');
+    assert.notEqual(shape(a), shape(b), 'two consecutive runs are laid out differently');
+    // Two clients derive the layout from the id alone, so they cannot disagree.
+    assert.equal(shape(generateLayout(TEMPLATE_BY_ID.get('hollow')!, a.seed)), shape(a));
+    assert.equal(a.rooms[0].kind, 'entry');
+    assert.equal(a.rooms.filter((r) => r.kind === 'keeper').length, 1);
+    for (const room of a.rooms) assert.ok(inBounds(room.x, room.z, first.id), room.name);
+    assert.equal(inBounds(a.bounds.minX - 30, 0, first.id), false);
+  } finally {
+    store.close();
+  }
+});
+
+test('a dropped door opens an instance that outlives it, and anyone may walk in', () => {
+  const { realm, p, store } = setup();
+  try {
+    const friend = realm.add(store.create('Second').profile, 'sentinel', () => {});
+    p.profile.character!.level = 20;
+    friend.profile.character!.level = 20;
+    // Hunt the family until its door falls.
+    let kills = 0;
+    while (!realm.portals.size && kills < 5000) {
+      const e = realm.spawn('thornling', -8, -12, 'wilds');
+      e.contributors.set(p.profile.id, realm.time);
+      Object.assign(p, { x: e.x, z: e.z });
+      realm.killEnemy(e, [p]);
+      kills++;
+    }
+    const door = [...realm.portals.values()][0];
+    assert.ok(door, 'a thornling eventually drops a Thornling Warren');
+    assert.equal(door.template, 'warren');
+    assert.ok(realm.portalStates()[0].remaining > 0);
+    realm.loot.clear();
+    for (const traveler of [p, friend]) {
+      Object.assign(traveler, { x: door.x, z: door.z });
+      realm.action(traveler.profile.id, 'interact');
+    }
+    assert.equal(p.dimension, door.instance);
+    assert.equal(friend.dimension, door.instance, 'a second traveler joins the same instance');
+    // The door closes while both are inside. Neither is evicted; the run still pays out.
+    realm.time += PORTAL_SECONDS + 1;
+    realm.step();
+    assert.equal(realm.portals.size, 0);
+    assert.equal(p.dimension, door.instance);
+    assert.equal(friend.dimension, door.instance);
+    clearRun(realm, p, [p, friend]);
+    assert.equal(realm.dungeons.state(p.dimension)!.status, 'cleared');
+    assert.ok(p.profile.character!.clears?.includes('warren'));
+    assert.ok(friend.profile.character!.clears?.includes('warren'));
+    assert.ok(ensureLegacy(p.profile).shards > 0);
+  } finally {
+    store.close();
+  }
+});
+
+test('an ordinary door opens at depth, scales its rewards, and refuses an unqualified arrival', () => {
+  const { realm, p, store, messages } = setup();
+  try {
+    p.profile.character!.level = 20;
+    realm.recall(p);
+    // Depth 2 is refused before depth 1 is cleared, exactly as Elder depths are.
+    realm.action(p.profile.id, 'attune', 'hollow:2');
+    assert.ok(messages.some((m) => m.type === 'notice' && m.text.includes('Clear depth 1')));
+    realm.action(p.profile.id, 'rally', 'hollow');
+    assert.equal(realm.dungeons.run(p.dimension)!.depth, 1);
+    clearRun(realm, p);
+    const shallow = p.profile.lastExpedition!;
+    realm.recall(p);
+    realm.action(p.profile.id, 'attune', 'hollow:2');
+    assert.equal(ensureLegacy(p.profile).selectedDepths!.hollow, 2);
+    realm.action(p.profile.id, 'rally', 'hollow');
+    const deep = realm.dungeons.run(p.dimension)!;
+    assert.equal(deep.depth, 2);
+    assert.notEqual(deep.modifier, 'still', 'depth rotates a modifier onto ordinary doors');
+    const scaled = [...realm.enemies.values()].find((e) => e.runId === deep.id);
+    // Health and damage scale with depth, the same way the Elder ladder always has.
+    Object.assign(p, realm.dungeons.state(p.dimension)!.altar);
+    realm.dungeons.interact(p);
+    const enemy = [...realm.enemies.values()].find((e) => e.runId === deep.id)!;
+    assert.ok(enemy.healthScale > 1, 'depth 2 raises health');
+    void scaled;
+    // A late arrival who never cleared depth 1 cannot follow them in.
+    const late = realm.add(store.create('Unready').profile, 'ranger', () => {});
+    const lateMessages: ServerMessage[] = [];
+    late.send = (m) => lateMessages.push(m);
+    late.profile.character!.level = 20;
+    realm.action(late.profile.id, 'rally', p.dimension);
+    assert.equal(late.dimension, 'wilds');
+    assert.ok(lateMessages.some((m) => m.type === 'notice' && m.text.includes('depth 2')));
+    clearRun(realm, p);
+    const deeper = p.profile.lastExpedition!;
+    assert.ok(deeper.shards > shallow.shards, 'a deeper clear is worth more');
+    assert.ok(deeper.gold > shallow.gold);
+    assert.equal(ensureLegacy(p.profile).bestDepths!.hollow, 2);
+    assert.ok(ensureLegacy(p.profile).bestTimes['hollow:2'] !== undefined);
+  } finally {
+    store.close();
+  }
+});
+
+test('a side room and a secret pay on their own, and the secret pays exactly once', () => {
+  const { realm, p, store } = setup();
+  try {
+    p.profile.character!.level = 20;
+    let run = realm.dungeons.open('hollow');
+    for (let i = 0; i < 80; i++) {
+      const l = layoutFor(run.id)!;
+      if (l.secret && l.rooms.some((r) => r.kind === 'side')) break;
+      run = realm.dungeons.open('hollow');
+    }
+    const layout = layoutFor(run.id)!;
+    assert.ok(layout.secret, 'some instances hide one');
+    p.dimension = run.id;
+    const side = layout.rooms.find((r) => r.kind === 'side')!;
+    Object.assign(p, { x: side.x, z: side.z });
+    realm.step();
+    const woken = [...realm.enemies.values()].filter((e) => e.sideRoom === side.id);
+    assert.ok(woken.length, 'walking into a side room wakes it');
+    assert.equal(realm.dungeons.state(run.id)!.status, 'ready', 'and it never gates the main run');
+    for (const e of woken) {
+      e.contributors.set(p.profile.id, realm.time);
+      realm.killEnemy(e, [p]);
+    }
+    assert.ok(realm.loot.size > 0, 'clearing it pays a better cache');
+    const afterSide = realm.loot.size;
+    Object.assign(p, { x: layout.secret!.x, z: layout.secret!.z });
+    realm.step();
+    assert.ok(realm.loot.size > afterSide, 'the secret pays a guaranteed higher-tier bag');
+    const afterSecret = realm.loot.size;
+    realm.step();
+    assert.equal(realm.loot.size, afterSecret, 'and it pays exactly once per run');
   } finally {
     store.close();
   }

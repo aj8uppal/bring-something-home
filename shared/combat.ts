@@ -156,6 +156,42 @@ export const BOSS_RELICS: Record<
     trait: 'zeal',
     description: 'One shape stood up out of the wave. It has been standing ever since.',
   },
+  warrenmother: {
+    name: 'The Seed She Kept Back',
+    slot: 'charm',
+    trait: 'focus',
+    description: 'One seed she never planted, in case the orchard needed starting again.',
+  },
+  lanternprime: {
+    name: 'The Wick That Remembers',
+    slot: 'charm',
+    trait: 'grace',
+    description: 'Light it anywhere and it burns the colour of the room it was first lit in.',
+  },
+  hivequeen: {
+    name: 'An Unfinished Letter',
+    slot: 'weapon',
+    trait: 'pierce',
+    description: 'Glass, cut into a sentence nobody has managed to read all the way through.',
+  },
+  vigilkeeper: {
+    name: 'Counting Dawns',
+    slot: 'armor',
+    trait: 'aegis',
+    description: 'A tally on the inside of a breastplate, and it goes all the way round.',
+  },
+  choirmaster: {
+    name: 'The Beat Under the Ash',
+    slot: 'weapon',
+    trait: 'swift',
+    description: 'Hold it and you will find yourself keeping time with something.',
+  },
+  chapelwarden: {
+    name: 'Still Seated',
+    slot: 'armor',
+    trait: 'defiance',
+    description: 'Whatever comes, it has decided it is not getting up.',
+  },
   stormremembers: {
     name: 'Everything the Storm Kept',
     slot: 'armor',

@@ -1,6 +1,9 @@
 import type { DungeonId, Profile, Vec } from './types.js';
 
 export const MAX_DEPTH = 12;
+/** Ordinary doors run one to five. The Elder Convergence remains the top of the ladder. */
+export const MAX_DOOR_DEPTH = 5;
+export const depthCap = (template: string) => (template === 'eclipse' ? MAX_DEPTH : MAX_DOOR_DEPTH);
 export const ELDER_KINDS = ['tideelder', 'cinderelder', 'nullelder'] as const;
 export const MODIFIERS = {
   still: {

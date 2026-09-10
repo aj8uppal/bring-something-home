@@ -13,17 +13,11 @@ import {
   type BiomeId,
 } from './places.js';
 import { BIOMES, BIOME_LIST, ECOLOGY, biomeHeight, type PropKind } from './biomes.js';
+import { insideLayout, layoutFor } from './layout.js';
+import { random } from './rng.js';
 import type { Dimension, Vec } from './types.js';
 export { ISLAND, WILDS_RADIUS } from './places.js';
-export function random(seed: number) {
-  return () => {
-    seed |= 0;
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
+export { random } from './rng.js';
 /** The island's original ground, unchanged. Everything inside radius 86 still reads this. */
 const islandHeight = (x: number, z: number) =>
   Math.sin(x * 0.09) * Math.cos(z * 0.07) * 0.42 + Math.sin(z * 0.2) * 0.12;
@@ -38,9 +32,10 @@ export function groundHeight(x: number, z: number, dimension: Dimension = 'wilds
   return base * (1 - t) + biomeHeight(BIOMES[biomeAt(x, z).id as BiomeId], x, z) * t;
 }
 export function inBounds(x: number, z: number, dimension: Dimension = 'wilds') {
-  return dimension === 'wilds'
-    ? Math.hypot(x - ISLAND.x, z - ISLAND.z) < WILDS_RADIUS
-    : Math.abs(x) < 29 && Math.abs(z) < 29;
+  if (dimension === 'wilds') return Math.hypot(x - ISLAND.x, z - ISLAND.z) < WILDS_RADIUS;
+  // A generated instance is any shape at all: its rooms and corridors are the bounds.
+  const layout = layoutFor(dimension);
+  return layout ? insideLayout(layout, x, z) : Math.abs(x) < 29 && Math.abs(z) < 29;
 }
 export interface Prop extends Vec {
   kind: PropKind;

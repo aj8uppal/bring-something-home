@@ -65,7 +65,7 @@ import {
 } from './game/map';
 import { placeById, threatOf } from '../shared/places';
 import { templateOf } from '../shared/instances';
-import { templateName } from '../shared/templates';
+import { TEMPLATE_BY_ID, templateName } from '../shared/templates';
 import { ISLAND } from '../shared/world';
 import { sound } from './game/audio';
 import * as ui from './ui';
@@ -81,8 +81,12 @@ let realms: RealmInfo[] = [],
   realmId =
     new URLSearchParams(location.search).get('realm') || readLocal<string>('realm', 'hearth-1');
 const invitedValue = new URLSearchParams(location.search).get('expedition');
+// An invitation names a realm and an instance. If that instance has expired by the time
+// somebody follows the link, the template name inside it opens a fresh one of the same kind.
 const invitedDungeon =
-  invitedValue && Object.hasOwn(DUNGEONS, invitedValue) ? (invitedValue as DungeonId) : undefined;
+  invitedValue && TEMPLATE_BY_ID.has(templateOf(invitedValue))
+    ? (invitedValue as DungeonId)
+    : undefined;
 let invitationPending = !!invitedDungeon,
   pendingRecap = false,
   pendingRally = false;
@@ -208,7 +212,7 @@ function renderTitle() {
   $('invite-banner').classList.toggle('hidden', !invitedDungeon);
   if (invitedDungeon)
     $('invite-banner').innerHTML =
-      `${icon('portal')}<span>You’re invited to <strong>${DUNGEONS[invitedDungeon].name}</strong><small>Enter the realm to meet your group at the entrance.</small></span>`;
+      `${icon('portal')}<span>You’re invited to <strong>${esc(templateName(templateOf(invitedDungeon)))}</strong><small>Enter the realm to meet your group at the entrance. If that door has closed, a fresh one opens.</small></span>`;
   if (profile?.character) classId = profile.character.classId;
   $('class-cards').innerHTML = ui.classCards(classId, !!profile?.character);
   text(
@@ -558,7 +562,10 @@ function renderVitals() {
     $('hunt-fill').style.width = `${(hunt.kills / hunt.target) * 100}%`;
   }
   const region = REGIONS.find((r) => r.id === zoneAt(p.x, p.z, p.dimension).id);
-  const recommended = p.dimension !== 'wilds' ? DUNGEONS[p.dimension].level : (region?.level ?? 1);
+  const recommended =
+    p.dimension !== 'wilds'
+      ? (TEMPLATE_BY_ID.get(templateOf(p.dimension))?.level ?? 1)
+      : (region?.level ?? 1);
   text(
     'zone-threat',
     p.safe
@@ -568,6 +575,9 @@ function renderVitals() {
   $('zone-threat').classList.toggle('danger', !p.safe && p.level < recommended);
   const dungeon = snapshot.dungeon;
   $('dungeon-progress').classList.toggle('hidden', !dungeon);
+  // The altar's position, so the compass and the checks can point at it in a generated room.
+  if (dungeon) $('dungeon-progress').dataset.altar = `${dungeon.altar.x},${dungeon.altar.z}`;
+  else delete $('dungeon-progress').dataset.altar;
   document.body.classList.toggle('in-dungeon', !!dungeon);
   if (dungeon) {
     const modifier = MODIFIERS[dungeon.modifier as Modifier];
@@ -1461,12 +1471,12 @@ $('app').addEventListener('click', (event) => {
   if (
     a === 'expedition-invite' &&
     target.dataset.id &&
-    Object.hasOwn(DUNGEONS, target.dataset.id)
+    TEMPLATE_BY_ID.has(templateOf(target.dataset.id))
   ) {
     const dim = target.dataset.id as DungeonId;
     void copyText(
       invitationUrl(location.origin, realmId, dim),
-      `Invitation copied for ${DUNGEONS[dim].name}.`,
+      `Invitation copied for ${templateName(templateOf(dim))}.`,
     );
   }
   if (a === 'save-victory' && profile?.lastExpedition) {

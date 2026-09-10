@@ -1,8 +1,18 @@
-import { DUNGEONS, ENEMIES, distance } from '../shared/content.js';
+import { CLASSES, DUNGEONS, ENEMIES, distance } from '../shared/content.js';
 import { instanceId, templateOf } from '../shared/instances.js';
 import {
+  instanceEncounters,
+  layoutFor,
+  roomAt,
+  sideEncounter,
+  type Room,
+} from '../shared/layout.js';
+import { TEMPLATE_BY_ID } from '../shared/templates.js';
+import {
+  type Encounter,
   EXPEDITIONS,
   MAX_DEPTH,
+  depthCap,
   MODIFIERS,
   depthScaling,
   ensureLegacy,
@@ -43,6 +53,11 @@ interface Run {
   emptySince: number;
   credit: Map<string, Set<number>>;
   crew: Map<string, { name: string; classId: ClassId }>;
+  /** Generated once, from the instance id, and identical for everyone inside it. */
+  encounters?: Encounter[];
+  /** Side rooms already woken, and whether the secret has been claimed. */
+  sides: Set<number>;
+  secretTaken: boolean;
 }
 /**
  * Every live dungeon in the realm. A run is one instance: a template plus a seed, opened
@@ -75,8 +90,19 @@ export class Dungeons {
     const id = this.resolve(dimension);
     return id ? this.runs.get(id) : undefined;
   }
-  encounters(template: string) {
-    return EXPEDITIONS[template] ?? EXPEDITIONS.hollow;
+  /** One instance's encounters, generated from its id and cached with the run. */
+  encounters(dimension: Dimension): Encounter[] {
+    const run = this.runs.get(dimension) ?? this.run(dimension);
+    if (!run) {
+      const template = TEMPLATE_BY_ID.get(templateOf(dimension));
+      return template ? (EXPEDITIONS[template.id] ?? []) : [];
+    }
+    return (run.encounters ??= instanceEncounters(run.id, EXPEDITIONS[run.template]));
+  }
+  /** How many chambers a template runs to, before an instance of it exists. */
+  chambers(template: string) {
+    const rows = TEMPLATE_BY_ID.get(template);
+    return rows ? rows.graph.min : (EXPEDITIONS[template]?.length ?? 3);
   }
   /** Open a fresh instance of a template. Story templates replace the realm's current one. */
   open(template: string, depth = 1, openedBy = 'the Hearth', portalSeconds = 0) {
@@ -111,6 +137,8 @@ export class Dungeons {
       emptySince: this.realm.time,
       credit: new Map(),
       crew: new Map(),
+      sides: new Set(),
+      secretTaken: false,
     });
     if (STORY_TEMPLATES.includes(template)) this.current.set(template, id);
     return this.runs.get(id)!;
@@ -166,21 +194,35 @@ export class Dungeons {
     }
     let run = this.runs.get(target) ?? this.run(target);
     if (!run || (run.status === 'cleared' && !this.occupants(run.id).length))
-      run = this.open(
-        template,
-        template === 'eclipse'
-          ? Math.min(MAX_DEPTH, legacy.highestDepth + 1, Math.max(1, legacy.selectedDepth))
-          : 1,
-      );
+      run = this.open(template, this.openDepth(p, template));
     if (!this.qualified(p, run)) return false;
     run.emptySince = this.realm.time;
     return run;
+  }
+  /**
+   * The depth a traveler opens a template at: their choice, never deeper than one above
+   * their own best clear of it. This is the rule Elder depths already used, generalised.
+   */
+  openDepth(p: Player, template: string) {
+    const legacy = ensureLegacy(p.profile);
+    const chosen =
+      template === 'eclipse'
+        ? Math.max(1, legacy.selectedDepth)
+        : Math.max(1, legacy.selectedDepths?.[template] ?? 1);
+    const best =
+      template === 'eclipse'
+        ? Math.max(legacy.highestDepth, legacy.bestDepths?.eclipse ?? 0)
+        : (legacy.bestDepths?.[template] ?? 0);
+    return Math.min(depthCap(template), best + 1, chosen);
   }
   /** Late arrivals qualify independently, exactly as Elder depths have always required. */
   qualified(p: Player, run: Run) {
     if (run.depth <= 1) return true;
     const legacy = ensureLegacy(p.profile);
-    const best = legacy.bestDepths?.[run.template] ?? 0;
+    const best =
+      run.template === 'eclipse'
+        ? Math.max(legacy.highestDepth, legacy.bestDepths?.eclipse ?? 0)
+        : (legacy.bestDepths?.[run.template] ?? 0);
     if (run.depth > best + 1) {
       this.realm.notice(
         p,
@@ -209,7 +251,7 @@ export class Dungeons {
         status: fresh ? 'empty' : run.status,
         depth: fresh ? 1 : run.depth,
         stage: fresh ? 1 : run.stage + 1,
-        stages: this.encounters(run.template).length,
+        stages: this.encounters(run.id).length,
         started: !fresh && run.started >= 0,
         population: occupants.length,
         travelers: occupants.slice(0, 8).map((p) => ({
@@ -237,7 +279,7 @@ export class Dungeons {
           status: 'empty',
           depth: 1,
           stage: 1,
-          stages: this.encounters(template).length,
+          stages: this.chambers(template),
           started: false,
           population: 0,
           travelers: [],
@@ -255,7 +297,7 @@ export class Dungeons {
     if (p.dimension === 'wilds') return false;
     const run = this.run(p.dimension);
     if (!run) return false;
-    const stage = this.encounters(run.template)[run.stage];
+    const stage = this.encounters(run.id)[run.stage];
     if (run.status !== 'ready' || distance(p, stage.altar) >= 4) return false;
     if (run.started < 0) run.started = this.realm.time;
     run.status = 'active';
@@ -282,23 +324,57 @@ export class Dungeons {
     for (const ally of this.occupants(run.id))
       this.realm.notice(
         ally,
-        `${run.stage + 1}/${this.encounters(run.template).length} · ${stage.name}`,
+        `${run.stage + 1}/${this.encounters(run.id).length} · ${stage.name}`,
         'info',
       );
     return true;
   }
-  killed(enemy: { id: string; dimension: string; runId?: string }, eligible: Player[]) {
+  killed(
+    enemy: { id: string; dimension: string; runId?: string; sideRoom?: number },
+    eligible: Player[],
+  ) {
     if (!enemy.runId) return;
     const run = this.runs.get(enemy.runId);
-    if (!run || run.status !== 'active') return;
+    if (!run) return;
+    // A side room is its own small fight. It never gates the altars, and it pays better.
+    if (enemy.sideRoom !== undefined) {
+      if (
+        [...this.realm.enemies.values()].some(
+          (e) => e.runId === run.id && e.sideRoom === enemy.sideRoom,
+        )
+      )
+        return;
+      const layout = layoutFor(run.id);
+      const room = layout?.rooms.find((r) => r.id === enemy.sideRoom);
+      for (const p of eligible) {
+        if (!p.profile.character) continue;
+        this.realm.dropItems(
+          p.profile.id,
+          { x: room?.x ?? 0, z: room?.z ?? 0, dimension: run.id },
+          this.bag(p, this.tierFor(run) + 1, 2),
+          240,
+        );
+        this.realm.notice(
+          p,
+          `${room?.name ?? 'The unmarked room'} is quiet. A better cache is on the ground.`,
+          'good',
+        );
+        this.realm.sync(p, true);
+      }
+      return;
+    }
+    if (run.status !== 'active') return;
     for (const p of eligible) {
       if (!run.credit.has(p.profile.id)) run.credit.set(p.profile.id, new Set());
       run.credit.get(p.profile.id)!.add(run.stage);
       run.crew.set(p.profile.id, { name: p.profile.name, classId: p.profile.character!.classId });
     }
-    if ([...this.realm.enemies.values()].some((e) => e.runId === run.id)) return;
+    if (
+      [...this.realm.enemies.values()].some((e) => e.runId === run.id && e.sideRoom === undefined)
+    )
+      return;
     this.clearCombat(run.id);
-    const encounters = this.encounters(run.template);
+    const encounters = this.encounters(run.id);
     const finished = run.stage === encounters.length - 1;
     const template = run.template;
     for (const p of this.occupants(run.id)) {
@@ -386,6 +462,82 @@ export class Dungeons {
       run.status = 'ready';
     }
   }
+  /** The loot tier a run pays at, which is the template's level band plus its depth. */
+  tierFor(run: Run) {
+    const level = TEMPLATE_BY_ID.get(run.template)?.level ?? 5;
+    return Math.max(2, Math.min(8, Math.round(level / 4) + run.depth));
+  }
+  bag(p: Player, tier: number, count: number) {
+    const slots = (['weapon', 'armor', 'charm'] as const).slice(0, count);
+    return slots.map((slot) => {
+      const item = makeItem(slot, Math.min(8, tier), 'rare', this.realm.rng);
+      if (slot === 'weapon') item.icon = CLASSES[p.profile.character!.classId].icon;
+      return item;
+    });
+  }
+  /**
+   * Optional rooms and the one secret. Walking into a side room wakes it; walking into the
+   * alcove behind a wall that was not a wall pays once, and people tell each other where.
+   */
+  updateRooms() {
+    for (const run of this.runs.values()) {
+      const layout = layoutFor(run.id);
+      if (!layout) continue;
+      for (const p of this.occupants(run.id)) {
+        const room = roomAt(layout, p.x, p.z);
+        if (!room) continue;
+        if (room.kind === 'side' && !run.sides.has(room.id)) {
+          run.sides.add(room.id);
+          this.wakeSide(run, room);
+          for (const ally of this.occupants(run.id))
+            this.realm.notice(ally, `${room.name}. Not on the way, and not empty.`, 'info');
+        }
+        if (room.kind === 'secret' && !run.secretTaken) {
+          run.secretTaken = true;
+          const reward = TEMPLATE_BY_ID.get(run.template)?.secret.reward ?? 4;
+          for (const ally of this.occupants(run.id)) {
+            this.realm.dropItems(
+              ally.profile.id,
+              { x: room.x, z: room.z, dimension: run.id },
+              this.bag(ally, reward + run.depth, 2),
+              240,
+            );
+            this.realm.notice(ally, `${room.name}. Somebody left this here on purpose.`, 'good');
+            this.realm.sync(ally, true);
+          }
+          this.realm.chat(
+            'The Hearth',
+            `${this.realm.players.get([...run.crew.keys()][0] ?? '')?.profile.name ?? 'Someone'} found the secret in ${DUNGEONS[run.template]?.name ?? run.template}.`,
+            true,
+          );
+        }
+      }
+    }
+  }
+  wakeSide(run: Run, room: Room) {
+    const encounter = sideEncounter(run.id, room);
+    if (!encounter) return;
+    const scale = depthScaling(run.depth),
+      modifier = MODIFIERS[run.modifier];
+    for (const pack of encounter.enemies)
+      for (let i = 0; i < pack.count; i++) {
+        const angle = (i / pack.count) * Math.PI * 2;
+        const enemy = this.realm.spawn(
+          pack.kind,
+          pack.x + Math.cos(angle) * pack.spread,
+          pack.z + Math.sin(angle) * pack.spread,
+          run.id,
+        );
+        enemy.runId = run.id;
+        enemy.sideRoom = room.id;
+        enemy.healthScale = scale.hp * modifier.hp * 1.15;
+        enemy.damageScale = scale.damage * modifier.damage;
+        enemy.speedScale = scale.speed * modifier.speed;
+        enemy.rateScale = modifier.rate;
+        enemy.hp = enemy.maxHp = Math.round(ENEMIES[enemy.kind].hp * enemy.healthScale);
+        enemy.nextFire = this.realm.time + 2;
+      }
+  }
   clearCombat(dimension: Dimension, enemies = false) {
     for (const [id, b] of this.realm.bullets)
       if (b.dimension === dimension) this.realm.bullets.delete(id);
@@ -396,6 +548,7 @@ export class Dungeons {
         if (e.dimension === dimension) this.realm.enemies.delete(id);
   }
   step() {
+    this.updateRooms();
     for (const [id, run] of this.runs) {
       if (this.occupants(id).length) {
         run.emptySince = this.realm.time;
@@ -409,7 +562,7 @@ export class Dungeons {
   state(dimension: Dimension): DungeonState | undefined {
     const run = this.run(dimension);
     if (!run) return;
-    const encounters = this.encounters(run.template);
+    const encounters = this.encounters(run.id);
     const stage = encounters[run.stage];
     return {
       dimension: run.id,
