@@ -300,3 +300,58 @@ function slide(p: Vec, dx: number, dz: number, dim: Dimension) {
 export function shortcutAt(x: number, z: number) {
   return SHORTCUTS.find((s) => Math.hypot(x - s.from.x, z - s.from.z) < s.radius);
 }
+
+/**
+ * A walkable path from one point to another, on a two-metre grid.
+ *
+ * The wilds are open but not empty: a thicket in the Hollow Grove will wedge anything that
+ * only knows how to steer at its destination. Anything that has to cross the world without
+ * eyes — the journey pilot, the capture walker — asks for the corners rather than the line.
+ */
+export function pathThrough(from: Vec, to: Vec, dimension: Dimension, budget = 12000): Vec[] {
+  const size = 2,
+    key = (x: number, z: number) => `${x},${z}`;
+  const start = { x: Math.round(from.x / size), z: Math.round(from.z / size) };
+  const end = { x: Math.round(to.x / size), z: Math.round(to.z / size) };
+  const open = [{ ...start, g: 0, f: 0 }],
+    seen = new Set<string>();
+  const parent = new Map<string, string>(),
+    costs = new Map([[key(start.x, start.z), 0]]);
+  while (open.length && seen.size < budget) {
+    open.sort((a, b) => b.f - a.f);
+    const n = open.pop()!,
+      id = key(n.x, n.z);
+    if (seen.has(id)) continue;
+    if (Math.hypot(n.x - end.x, n.z - end.z) < 1.5) {
+      const path: Vec[] = [{ ...to }];
+      let at: string | undefined = id;
+      while (at) {
+        const [x, z] = at.split(',').map(Number);
+        path.unshift({ x: x * size, z: z * size });
+        at = parent.get(at);
+      }
+      return path.slice(1);
+    }
+    seen.add(id);
+    for (let x = -1; x <= 1; x++)
+      for (let z = -1; z <= 1; z++) {
+        if (!x && !z) continue;
+        const nx = n.x + x,
+          nz = n.z + z,
+          next = key(nx, nz),
+          g = n.g + Math.hypot(x, z);
+        if (seen.has(next) || g >= (costs.get(next) ?? Infinity)) continue;
+        // Every quarter-step of the move has to be standable, or it is not a move.
+        if (
+          ![0.25, 0.5, 0.75, 1].every((t) =>
+            canMove((n.x + x * t) * size, (n.z + z * t) * size, dimension),
+          )
+        )
+          continue;
+        costs.set(next, g);
+        parent.set(next, id);
+        open.push({ x: nx, z: nz, g, f: g + Math.hypot(nx - end.x, nz - end.z) });
+      }
+  }
+  return [to];
+}

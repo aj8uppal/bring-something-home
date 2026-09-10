@@ -127,10 +127,10 @@ reports live instances, open doors, creature count and heap.
 
 Standing in the Petrified Orchard — the densest scenery in the realm at 8.5 props per
 hundred square units — in the running app on native Chrome: **60 fps at High quality and
-60 fps at Low**, 145 draw calls at both. Draw calls stay flat because every kind of scenery
+60 fps at Low**, 144 and 142 draw calls. Draw calls stay flat because every kind of scenery
 is one instanced batch regardless of how many of it there are; the outer ring adds rows to
-those batches, not new ones. Across the seven biomes on arrival, draw calls ranged from 60
-in the Petrified Orchard's outer rows to 170 on the Drowned Coast, at 60 fps in all of them.
+those batches, not new ones. Across the seven biomes on arrival, draw calls ranged from 71 in the Shattered Observatory
+to 157 on the Drowned Coast, at 60 fps in all of them.
 Captures: `playtests/biome-*.png` (seven), `playtests/setpiece-*.png`, and
 `playtests/frames-orchard-high.png` / `-low.png`.
 

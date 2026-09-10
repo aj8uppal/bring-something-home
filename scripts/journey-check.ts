@@ -6,7 +6,24 @@ import { Realm } from '../server/realm.js';
 import { stats } from '../server/model.js';
 import { CLASSES, ENEMIES, distance } from '../shared/content.js';
 import { flowTo, layoutFor, roomAt, type Flow } from '../shared/layout.js';
-import { canMove } from '../shared/world.js';
+import { canMove, pathThrough } from '../shared/world.js';
+/** Whether a shot fired at this target would actually reach it, or stop at a wall. */
+function canSee(from: Vec, to: Vec, dim: Dimension) {
+  const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
+  for (let i = 1; i <= steps; i++)
+    if (
+      !canMove(from.x + ((to.x - from.x) * i) / steps, from.z + ((to.z - from.z) * i) / steps, dim)
+    )
+      return false;
+  return true;
+}
+import { bagItems } from '../shared/loot.js';
+import { compareGear } from '../shared/gear.js';
+import { journeyGoal, journeyTarget } from '../shared/progression.js';
+import type { ClassId, Dimension, Snapshot, Vec } from '../shared/types.js';
+
+// Navigation belongs to this test pilot, never to the player's movement controls.
+const route = (from: Vec, to: Vec, dim: Dimension) => pathThrough(from, to, dim, 11000);
 /** Whether a shot fired at this target would actually reach it, or stop at a wall. */
 function canSee(from: Vec, to: Vec, dim: Dimension) {
   const steps = Math.max(2, Math.ceil(Math.hypot(to.x - from.x, to.z - from.z) / 1.2));
