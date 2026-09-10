@@ -302,6 +302,8 @@ export class WorldView {
   graveMeshes = new Map<string, THREE.Group>();
   beacons: THREE.InstancedMesh;
   beaconSignature = '';
+  /** Light columns that are seals, as distinct from events and setpieces. */
+  sealBeacons = 0;
   fogTarget = FOG_BASE.clone();
   skyTarget = SKY_BASE.clone();
   shake = 0;
@@ -1487,6 +1489,9 @@ export class WorldView {
       (w) => !seals.includes(w.kind),
     ).map((w) => ({ x: w.x, z: w.z, kind: w.kind }));
     if (crown === 'open') posts.push({ x: 0, z: -66, kind: 'sovereign' });
+    // The seals are their own count: a realm event or a woken setpiece raises a column too,
+    // and "how many seals still stand" must not change meaning because something is burning.
+    this.sealBeacons = posts.length;
     for (const piece of live)
       posts.push({ x: piece.x, z: piece.z, kind: piece.id, color: piece.color });
     if (event)
@@ -1863,7 +1868,8 @@ export class WorldView {
         this.objectiveMarker.children[1].position.y = 1.9 + Math.sin(now * 0.004) * 0.16;
       }
       this.canvas.dataset.cameraYaw = this.yaw.toFixed(4);
-      this.canvas.dataset.beacons = String(this.beacons.count);
+      this.canvas.dataset.beacons = String(this.sealBeacons);
+      this.canvas.dataset.beaconsTotal = String(this.beacons.count);
       this.canvas.dataset.dimension = this.dimension;
       this.canvas.dataset.cameraZoom = this.zoom.toFixed(3);
       this.canvas.dataset.cameraPitch = this.pitch.toFixed(2);

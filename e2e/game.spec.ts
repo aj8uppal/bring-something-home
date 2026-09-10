@@ -333,24 +333,29 @@ test('local movement responds before inputs delayed by 250ms reach the server', 
   await page.waitForTimeout(600);
   const response = await page.evaluate(
     () =>
-      new Promise<{ elapsed: number; server: string }>((resolve) => {
+      new Promise<{ frames: number; moved: boolean; server: string }>((resolve) => {
         const canvas = document.querySelector<HTMLCanvasElement>('#world')!;
         const start = performance.now(),
           x = Number(canvas.dataset.playerX);
+        let frames = 0;
         canvas.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyD', bubbles: true }));
         const check = () => {
-          if (Number(canvas.dataset.playerX) > x + 0.08 || performance.now() - start > 500) {
+          frames++;
+          const moved = Number(canvas.dataset.playerX) > x + 0.08;
+          if (moved || performance.now() - start > 2000) {
             canvas.dispatchEvent(new KeyboardEvent('keyup', { code: 'KeyD', bubbles: true }));
-            resolve({
-              elapsed: performance.now() - start,
-              server: document.querySelector('#coordinates')!.textContent!,
-            });
+            resolve({ frames, moved, server: document.querySelector('#coordinates')!.textContent! });
           } else requestAnimationFrame(check);
         };
         requestAnimationFrame(check);
       }),
   );
-  expect(response.elapsed).toBeLessThan(150);
+  // Count frames, not milliseconds. Prediction happens in the frame that reads the key,
+  // so a frame bound states that directly; a wall-clock bound states it only on a machine
+  // whose frames are short, and measures the runner's renderer everywhere else. That the
+  // server is still at 0 is what "before the input reached it" actually means.
+  expect(response.moved).toBe(true);
+  expect(response.frames).toBeLessThanOrEqual(2);
   expect(response.server.split('/')[0].trim()).toBe('0');
 });
 
