@@ -1,0 +1,1474 @@
+/* Combat and equipment share a compact, fixed layout. Loot never scrolls. */
+:root {
+  --rail-width: 252px;
+  --combat-center: calc((100vw - var(--rail-width)) / 2);
+}
+.in-world #world,
+.in-world #world-labels,
+.in-world .world-vignette {
+  width: calc(100% - var(--rail-width));
+}
+.inventory-rail {
+  position: absolute;
+  inset: 0 0 0 auto;
+  width: var(--rail-width);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  background: linear-gradient(160deg, #203532fa, #112622fc);
+  border-left: 1px solid #bda36c66;
+  box-shadow: -6px 0 30px #10221d38;
+  pointer-events: auto;
+}
+.inventory-rail .map-panel,
+.inventory-rail .side-tools,
+.inventory-rail .camera-tools,
+.inventory-rail .currencies {
+  position: static;
+  width: 100%;
+  margin: 0;
+  transform: none;
+}
+.inventory-rail .map-panel {
+  flex-shrink: 0;
+}
+.inventory-rail .minimap-button {
+  height: clamp(76px, 15vh, 142px);
+}
+.inventory-rail .map-heading {
+  padding: 3px 7px;
+}
+.inventory-rail .realm-population {
+  padding: 7px;
+}
+.inventory-rail .side-tools {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+}
+.inventory-rail .side-tools button {
+  padding: 6px;
+  display: flex;
+  justify-content: center;
+  gap: 6px;
+  align-items: center;
+}
+.inventory-rail .side-tools .icon {
+  width: 16px;
+  height: 16px;
+}
+.inventory-rail .side-tools kbd {
+  font-size: 7px;
+}
+.inventory-rail .camera-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  padding: 0;
+  background: none;
+  border: 0;
+}
+.inventory-rail .camera-tools > button {
+  height: 26px;
+  flex: 1;
+}
+.inventory-rail .camera-tools > span {
+  display: none;
+}
+.inventory-rail .camera-tilt {
+  width: 100%;
+  height: 20px;
+  padding: 0 3px;
+}
+.inventory-rail .camera-tilt input {
+  min-width: 0;
+}
+.inventory-rail .currencies {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  padding: 4px 0 6px;
+  border-bottom: 1px solid #c6bc8530;
+  font-size: 10px;
+}
+.inventory-rail .currencies #safe-state {
+  margin-left: auto;
+  font-size: 8px;
+}
+.inventory-rail .currencies .icon {
+  width: 12px;
+  height: 12px;
+}
+.rail-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  color: #b9bfaa;
+  font-size: 8px;
+  letter-spacing: 0.13em;
+  margin-bottom: 7px;
+}
+.rail-heading > button {
+  font-size: 9px;
+  letter-spacing: 0;
+  color: #decea4;
+}
+.rail-heading kbd {
+  margin-left: 4px;
+  font-size: 7px;
+}
+.hud-equipment {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-bottom: 12px;
+}
+.hud-equipment > div {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.hud-equipment > div > small {
+  writing-mode: vertical-rl;
+  font-size: 8px;
+  color: #9caf9d;
+}
+.hud-slot {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+  width: 100%;
+  aspect-ratio: 1;
+  padding: 0;
+  border: 1px solid color-mix(in srgb, var(--rarity, #738b79), transparent 48%);
+  background: radial-gradient(
+    ellipse at 50% 30%,
+    color-mix(in srgb, var(--rarity, #607d6c), transparent 88%),
+    #132c28 95%
+  );
+  color: var(--rarity, #819489);
+  border-radius: 3px;
+}
+.hud-slot > .icon {
+  width: 53%;
+  height: 53%;
+  filter: drop-shadow(0 2px 1px #0008);
+}
+.hud-slot:hover,
+.hud-slot:focus-visible {
+  border-color: var(--rarity);
+  box-shadow: 0 0 0 1px var(--rarity);
+  background: #425848;
+}
+.hud-slot.empty {
+  opacity: 0.45;
+  border-style: dashed;
+}
+.hud-tier {
+  position: absolute;
+  top: 2px;
+  left: 3px;
+  font-size: 8px;
+  font-weight: 600;
+  color: #ebe4c8;
+  text-shadow: 0 1px 2px #071c17;
+}
+.hud-slot .slot-verdict {
+  position: absolute;
+  top: 1px;
+  right: 2px;
+  font: 600 10px system-ui;
+  padding: 0 2px;
+  background: #142922d9;
+  border-radius: 2px;
+}
+.hud-slot.upgrade {
+  border-color: #b9d791;
+  box-shadow: inset 0 -2px #a4d68180;
+}
+.hud-slot.outclassed > .icon {
+  opacity: 0.52;
+}
+.item-lock {
+  position: absolute;
+  bottom: 2px;
+  right: 3px;
+  font-size: 8px;
+  font-style: normal;
+  color: #f0d498;
+}
+.hud-inventory {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 4px;
+}
+.rail-salvage > button {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 4px;
+  font-size: 9px;
+  padding: 9px 0 4px;
+  width: 100%;
+  color: #dec79c;
+}
+.rail-salvage .icon {
+  width: 13px;
+  height: 13px;
+}
+.rail-salvage > button > span {
+  color: #e9cf86;
+}
+.rail-salvage > small {
+  display: block;
+  font-size: 8px;
+  color: #9cad9d;
+  text-align: center;
+  margin-top: 4px;
+}
+.inventory-rail .ground-loot {
+  position: static;
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+  max-height: none;
+  height: auto;
+  padding: 10px 0 0;
+  margin: 0;
+  transform: none;
+  overflow: visible;
+  border: 0;
+  border-top: 1px solid #d2b57977;
+  background: none;
+  box-shadow: none;
+}
+.bag-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 8px;
+  color: var(--bag-color);
+}
+.bag-heading > svg {
+  width: 28px;
+  height: 30px;
+  flex-shrink: 0;
+}
+.bag-heading > div {
+  flex: 1;
+  min-width: 0;
+}
+.bag-heading strong {
+  display: block;
+  font-size: 12px;
+  font-family: Georgia, serif;
+  font-weight: normal;
+}
+.bag-heading small {
+  display: block;
+  font-size: 8px;
+  color: #b4bcaa;
+  margin-top: 2px;
+}
+.bag-heading > span,
+.bag-heading > button {
+  font-size: 8px;
+  color: #d0ceb1;
+}
+.bag-heading kbd {
+  font-size: 6px;
+}
+.bag-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 5px;
+}
+.bag-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 8px;
+}
+.bag-footer > span {
+  font-size: 8px;
+  color: #b0bda9;
+  line-height: 1.6;
+}
+.bag-footer .small-button {
+  font-size: 10px;
+  padding: 7px 10px;
+}
+.bag-footer kbd {
+  font-size: 8px;
+  margin-right: 4px;
+}
+.touch-hint {
+  display: none;
+}
+.bottom-center {
+  left: var(--combat-center);
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: max-content;
+  max-width: calc(100vw - var(--rail-width) - 30px);
+}
+.bottom-center .player-panel {
+  position: static;
+  transform: none;
+  width: 330px;
+  max-width: 100%;
+  padding: 9px 12px;
+  gap: 10px;
+  border: 1px solid #cfc19255;
+  background: #162e2df0;
+  border-radius: 4px;
+  box-shadow: 0 6px 24px #081e2255;
+}
+.bottom-center .portrait {
+  width: 38px;
+  height: 45px;
+  flex-shrink: 0;
+}
+.bottom-center .portrait .icon {
+  width: 25px;
+  height: 25px;
+}
+.bottom-center .player-vitals {
+  width: auto;
+  flex: 1;
+}
+.bottom-center .name-line {
+  margin-bottom: 4px;
+}
+.bottom-center .name-line strong {
+  font-size: 11px;
+}
+.bottom-center .name-line > span {
+  padding: 1px 4px;
+  font-size: 7px;
+}
+.bottom-center .bar {
+  height: 15px;
+  margin-top: 3px;
+}
+.bottom-center .bar > span {
+  line-height: 13px;
+  font-size: 9px;
+}
+.bottom-center .bar.mana {
+  height: 10px;
+}
+.bottom-center .bar.mana > span {
+  line-height: 8px;
+  font-size: 7px;
+}
+.bottom-center .xp-track {
+  margin-top: 4px;
+}
+.bottom-center .hotbar {
+  margin: 0;
+}
+.bottom-center .controls-hint {
+  font-size: 8px;
+  margin: 0;
+}
+.bottom-center .onboarding {
+  position: absolute;
+  bottom: calc(100% + 10px);
+  left: 50%;
+  transform: translateX(-50%);
+  width: max-content;
+  max-width: 360px;
+}
+.quest-tracker {
+  left: 22px;
+  top: 24px;
+  width: 245px;
+}
+.quest-tracker strong {
+  font-size: 20px;
+}
+.hunt-card {
+  left: 23px;
+  top: 132px;
+  width: 220px;
+}
+.dungeon-progress,
+.in-dungeon .dungeon-progress {
+  top: 24px;
+  left: 22px;
+  width: 245px;
+}
+.journey-compass {
+  left: var(--combat-center);
+  top: auto;
+  bottom: 217px;
+  max-width: 280px;
+}
+.interaction {
+  left: var(--combat-center);
+  bottom: 260px;
+  max-width: 350px;
+}
+.boss-panel {
+  left: var(--combat-center);
+  top: 26px;
+  max-width: min(420px, calc(100vw - var(--rail-width) - 530px));
+}
+.chain-meter {
+  left: var(--combat-center);
+  top: 133px;
+}
+.event-banner {
+  left: var(--combat-center);
+  top: 180px;
+}
+.chat-panel {
+  bottom: 24px;
+  left: 20px;
+  width: min(290px, calc((100vw - var(--rail-width)) / 2 - 210px));
+}
+.hearth-mark {
+  display: none;
+}
+.toasts {
+  top: 225px;
+  left: 23px;
+  max-width: 255px;
+}
+.zone-announcement {
+  left: var(--combat-center);
+}
+.pickup-toast {
+  position: absolute;
+  left: var(--combat-center);
+  bottom: 305px;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 9px 12px;
+  max-width: 340px;
+  border: 1px solid #cfc19166;
+  background: #1b3430ed;
+  border-radius: 4px;
+  box-shadow: 0 5px 24px #112e2744;
+}
+.pickup-toast > .icon {
+  width: 23px;
+  color: #d8cb9b;
+  flex-shrink: 0;
+}
+.pickup-toast > span {
+  flex: 1;
+  min-width: 0;
+}
+.pickup-toast strong {
+  display: block;
+  font-size: 11px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pickup-toast small {
+  display: block;
+  font-size: 8px;
+  color: #b4c6a8;
+  margin-top: 3px;
+}
+.pickup-toast > button {
+  font-size: 10px;
+  white-space: nowrap;
+}
+.pickup-toast.obscured {
+  display: none;
+}
+.item-tooltip {
+  position: fixed;
+  z-index: 35;
+  width: 288px;
+  max-width: calc(100vw - 16px);
+  padding: 14px;
+  border: 1px solid #d5bd826b;
+  border-radius: 5px;
+  background: #132c29fa;
+  box-shadow: 0 10px 35px #071d2299;
+  pointer-events: auto;
+}
+.tooltip-heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.tooltip-heading > .icon {
+  width: 29px;
+  height: 29px;
+  flex-shrink: 0;
+}
+.tooltip-heading small {
+  display: block;
+  font-size: 8px;
+  margin-bottom: 4px;
+}
+.tooltip-heading strong {
+  font-size: 16px;
+  font-family: Georgia, serif;
+  font-weight: normal;
+}
+.tooltip-verdict {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+}
+.tooltip-verdict > span:last-child {
+  font-size: 10px;
+  color: #c6d0b9;
+}
+.item-tooltip p {
+  font-size: 10px;
+  line-height: 1.5;
+  color: #c4cdb8;
+  margin: 9px 0;
+}
+.tooltip-deltas {
+  display: grid;
+  gap: 6px;
+  margin: 11px 0;
+  font-size: 10px;
+}
+.tooltip-deltas > span {
+  display: flex;
+  justify-content: space-between;
+}
+.tooltip-deltas small,
+.tooltip-against {
+  font-size: 8px;
+  color: #9eb19e;
+  display: block;
+  line-height: 1.6;
+}
+.tooltip-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+  border-top: 1px solid #c8c89c22;
+  margin-top: 12px;
+  padding-top: 10px;
+}
+.tooltip-actions .small-button {
+  padding: 7px 9px;
+  font-size: 10px;
+}
+.tooltip-actions .text-link {
+  font-size: 10px;
+}
+.bulk-salvage {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  margin: 0 0 14px;
+}
+.bulk-salvage small {
+  color: #a9bba6;
+  font-size: 10px;
+}
+.self-vitals {
+  position: absolute;
+  width: 47px;
+  height: 11px;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 2px #132626);
+}
+.self-vitals > i {
+  display: block;
+  height: 5px;
+  background: #112726e8;
+  border: 1px solid #e6e2c366;
+}
+.self-vitals > i + i {
+  height: 3px;
+  margin-top: 2px;
+}
+.self-vitals b {
+  display: block;
+  height: 100%;
+  background: #b6d795;
+}
+.self-vitals > i + i b {
+  background: #89d2e0;
+}
+.self-vitals.danger > i:first-child b {
+  background: #ff8269;
+}
+.loot-label {
+  padding: 3px 6px;
+  font-size: 8px;
+  background: #17342ad4;
+  box-shadow: none;
+}
+.enemy-label span {
+  font-size: 8px;
+}
+.enemy-label.quest-target span {
+  color: #f6d698;
+}
+@media (max-height: 780px) and (min-width: 901px) {
+  .inventory-rail {
+    gap: 6px;
+    padding: 9px 12px;
+  }
+  .inventory-rail .minimap-button {
+    height: 78px;
+  }
+  .hud-equipment {
+    margin-bottom: 7px;
+  }
+  .hud-equipment .hud-slot {
+    max-width: 43px;
+  }
+  .bag-grid .hud-slot {
+    max-height: 43px;
+    aspect-ratio: auto;
+    height: 43px;
+  }
+  .rail-salvage > small {
+    display: none;
+  }
+  .inventory-rail .ground-loot {
+    padding-top: 7px;
+  }
+  .bag-heading {
+    margin-bottom: 6px;
+  }
+  .bottom-center {
+    bottom: 12px;
+    gap: 6px;
+  }
+  .journey-compass {
+    bottom: 207px;
+  }
+  .interaction {
+    bottom: 252px;
+  }
+}
+@media (max-width: 1200px) and (min-width: 901px) {
+  :root {
+    --rail-width: 232px;
+  }
+  .quest-tracker,
+  .dungeon-progress,
+  .in-dungeon .dungeon-progress {
+    width: 196px;
+    left: 15px;
+  }
+  .hunt-card {
+    width: 196px;
+    left: 15px;
+  }
+  .boss-panel {
+    top: 27px;
+    max-width: calc(100vw - var(--rail-width) - 430px);
+    min-width: 250px;
+  }
+  .boss-panel strong {
+    font-size: 19px;
+  }
+  .chat-panel {
+    width: 190px;
+    bottom: 210px;
+    left: 15px;
+  }
+  .toasts {
+    left: 15px;
+    max-width: 195px;
+  }
+  .rail-salvage > small {
+    font-size: 7px;
+  }
+}
+@media (max-width: 900px) {
+  :root {
+    --rail-width: 0px;
+    --combat-center: 50vw;
+  }
+  .inventory-rail {
+    inset: 10px 10px auto auto;
+    width: 132px;
+    padding: 0;
+    gap: 5px;
+    border: 0;
+    background: none;
+    box-shadow: none;
+    pointer-events: none;
+  }
+  .inventory-rail .map-panel,
+  .inventory-rail .side-tools,
+  .inventory-rail .camera-tools {
+    pointer-events: auto;
+  }
+  .inventory-rail .minimap-button {
+    height: 79px;
+  }
+  .inventory-rail .map-heading {
+    font-size: 7px;
+    padding: 2px 5px;
+  }
+  .inventory-rail .realm-population {
+    padding: 5px;
+    font-size: 6px;
+    gap: 4px;
+  }
+  .inventory-rail .realm-population #ping {
+    font-size: 6px;
+  }
+  .inventory-rail .side-tools {
+    gap: 3px;
+  }
+  .inventory-rail .side-tools button {
+    padding: 7px 4px;
+  }
+  .inventory-rail .side-tools kbd {
+    display: none;
+  }
+  .inventory-rail .camera-tools {
+    gap: 3px;
+  }
+  .inventory-rail .camera-tools > button {
+    height: 25px;
+  }
+  .inventory-rail .camera-tilt {
+    background: #183631ec;
+    height: 22px;
+    margin-top: 2px;
+  }
+  .inventory-rail #hud-kit,
+  .inventory-rail .currencies {
+    display: none;
+  }
+  .inventory-rail .ground-loot {
+    position: fixed;
+    right: 10px;
+    bottom: 199px;
+    width: 208px;
+    padding: 10px;
+    background: #122b28f7;
+    border: 1px solid #c9b98177;
+    border-radius: 4px;
+    pointer-events: auto;
+  }
+  .bag-grid {
+    gap: 4px;
+  }
+  .bag-heading {
+    margin-bottom: 6px;
+  }
+  .bag-heading > svg {
+    width: 23px;
+    height: 25px;
+  }
+  .bag-heading strong {
+    font-size: 11px;
+  }
+  .bag-footer {
+    margin-top: 7px;
+  }
+  .bag-footer .small-button {
+    padding: 6px;
+    font-size: 9px;
+  }
+  .bottom-center {
+    bottom: 12px;
+    gap: 6px;
+    max-width: calc(100vw - 20px);
+  }
+  .bottom-center .player-panel {
+    width: 260px;
+    padding: 7px 9px;
+    gap: 8px;
+  }
+  .bottom-center .portrait {
+    width: 31px;
+    height: 40px;
+  }
+  .bottom-center .portrait .icon {
+    width: 21px;
+  }
+  .bottom-center .name-line strong {
+    font-size: 10px;
+  }
+  .bottom-center .hotbar {
+    height: 60px;
+  }
+  .bottom-center .hotbar .skill {
+    width: 47px;
+    min-width: 0;
+    height: 54px;
+  }
+  .bottom-center .hotbar .skill > .icon,
+  .bottom-center #weapon-icon .icon,
+  .bottom-center #ability-icon .icon {
+    width: 22px;
+    height: 22px;
+  }
+  .bottom-center .hotbar .skill small {
+    font-size: 7px;
+  }
+  .bottom-center .hotbar .skill kbd {
+    font-size: 6px;
+  }
+  .bottom-center .controls-hint,
+  .bottom-center .onboarding {
+    display: none;
+  }
+  .quest-tracker {
+    left: 12px;
+    top: 15px;
+    width: calc(100vw - 170px);
+    max-width: 230px;
+  }
+  .quest-tracker strong {
+    font-size: 17px;
+  }
+  .quest-tracker > .eyebrow {
+    font-size: 7px;
+  }
+  .quest-tracker > span:not(.eyebrow) {
+    font-size: 8px;
+  }
+  .quest-progress {
+    width: 100%;
+  }
+  .hunt-card {
+    left: 12px;
+    top: 114px;
+    width: calc(100vw - 170px);
+    max-width: 200px;
+  }
+  .hunt-card small {
+    display: none;
+  }
+  .dungeon-progress,
+  .in-dungeon .dungeon-progress {
+    left: 12px;
+    top: 15px;
+    width: calc(100vw - 170px);
+    max-width: 225px;
+    padding: 10px;
+  }
+  .dungeon-progress strong {
+    font-size: 14px;
+  }
+  .dungeon-progress > span:not(.eyebrow),
+  .dungeon-progress small {
+    font-size: 8px;
+  }
+  .boss-panel {
+    top: 240px;
+    left: 50%;
+    max-width: calc(100vw - 30px);
+    width: 290px;
+    min-width: 0;
+  }
+  .boss-panel strong {
+    font-size: 19px;
+  }
+  .boss-panel .eyebrow {
+    font-size: 7px;
+  }
+  .journey-compass {
+    bottom: 155px;
+    max-width: calc(100vw - 26px);
+  }
+  .journey-compass small {
+    font-size: 8px;
+  }
+  .interaction {
+    bottom: 192px;
+    max-width: calc(100vw - 26px);
+  }
+  .chain-meter {
+    top: 180px;
+    left: 95px;
+  }
+  .event-banner {
+    top: 290px;
+    left: 50%;
+    width: 270px;
+  }
+  .toasts {
+    left: 12px;
+    top: 222px;
+    max-width: 180px;
+  }
+  .toast {
+    font-size: 9px;
+    padding: 9px;
+  }
+  .chat-panel {
+    bottom: 194px;
+    left: 12px;
+    width: 150px;
+  }
+  .chat-lines {
+    max-height: 55px;
+    opacity: 0.65;
+  }
+  .chat-line {
+    font-size: 7px;
+  }
+  .chat-panel #chat-form {
+    margin-top: 3px;
+  }
+  .chat-panel input {
+    font-size: 8px;
+  }
+  .pickup-toast {
+    bottom: 233px;
+    max-width: calc(100vw - 24px);
+    width: max-content;
+  }
+  .zone-announcement {
+    top: 38%;
+    left: 50%;
+  }
+  #touch-controls .joystick {
+    bottom: 88px;
+    width: 70px;
+    height: 70px;
+  }
+  #move-stick {
+    left: 12px;
+  }
+  #aim-stick {
+    right: 12px;
+  }
+  #touch-controls > button {
+    bottom: 165px;
+    right: 30px;
+    width: 34px;
+    height: 34px;
+  }
+}
+@media (hover: none) {
+  .desktop-hint {
+    display: none;
+  }
+  .touch-hint {
+    display: inline;
+  }
+}
+@media (max-height: 590px) {
+  .bottom-center {
+    bottom: 8px;
+    gap: 3px;
+  }
+  .bottom-center .player-panel {
+    padding: 5px 8px;
+    width: 265px;
+  }
+  .bottom-center .portrait {
+    display: none;
+  }
+  .bottom-center .hotbar {
+    height: 52px;
+  }
+  .bottom-center .hotbar .skill {
+    height: 48px;
+    width: 44px;
+  }
+  .bottom-center .controls-hint {
+    display: none;
+  }
+  .journey-compass {
+    bottom: 135px;
+  }
+  .interaction {
+    bottom: 174px;
+  }
+  .pickup-toast {
+    bottom: 211px;
+  }
+  .inventory-rail .minimap-button {
+    height: 50px;
+  }
+  .inventory-rail .camera-tilt {
+    height: 16px;
+  }
+  .inventory-rail .ground-loot {
+    padding-top: 5px;
+  }
+  .hud-equipment {
+    margin-bottom: 5px;
+  }
+  .rail-heading {
+    margin-bottom: 4px;
+  }
+  .bag-grid .hud-slot {
+    max-height: 33px;
+    height: 33px;
+  }
+  .bag-footer .small-button {
+    padding: 4px 7px;
+  }
+  .bag-heading > svg {
+    height: 22px;
+  }
+  .toasts {
+    top: 150px;
+  }
+}
+@media (max-width: 900px) and (max-height: 590px) {
+  .inventory-rail .map-panel {
+    display: none;
+  }
+  .inventory-rail {
+    width: 150px;
+  }
+  .inventory-rail .ground-loot {
+    bottom: 14px;
+    right: 12px;
+    width: 195px;
+    padding: 8px;
+  }
+  .boss-panel {
+    top: 15px;
+    width: 270px;
+    max-width: calc(100vw - 480px);
+  }
+  .boss-panel strong {
+    font-size: 17px;
+  }
+  .boss-panel .eyebrow {
+    font-size: 6px;
+  }
+  .chat-panel {
+    bottom: 90px;
+    width: 150px;
+  }
+  .chat-lines {
+    display: none;
+  }
+  .quest-tracker,
+  .dungeon-progress,
+  .in-dungeon .dungeon-progress {
+    width: 190px;
+    max-width: 26vw;
+  }
+  .hunt-card {
+    top: 113px;
+    width: 165px;
+  }
+  .chain-meter {
+    top: 99px;
+    left: 50%;
+  }
+  #touch-controls .joystick {
+    bottom: 14px;
+  }
+  #aim-stick {
+    right: 217px;
+  }
+  #touch-controls > button {
+    bottom: 92px;
+    right: 235px;
+  }
+  .toasts {
+    top: 150px;
+    max-width: 155px;
+  }
+}
+.objective-stack {
+  position: absolute;
+  top: 24px;
+  left: 22px;
+  width: 245px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.hud .objective-stack > .quest-tracker,
+.hud .objective-stack > .hunt-card,
+.hud .objective-stack > .dungeon-progress {
+  position: static;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+.in-world #toasts {
+  top: 260px;
+  left: 23px;
+  width: 235px;
+  max-width: 235px;
+}
+.in-world .toast {
+  width: 100%;
+  padding: 11px 13px;
+  font-size: 10px;
+}
+@media (min-width: 901px) and (max-width: 1200px) {
+  .objective-stack {
+    left: 15px;
+    width: 196px;
+  }
+  .in-world #toasts {
+    left: 15px;
+    width: 195px;
+    max-width: 195px;
+    top: 280px;
+  }
+}
+@media (min-width: 901px) and (max-height: 660px) {
+  .inventory-rail .map-panel {
+    display: none;
+  }
+  .inventory-rail .side-tools button {
+    min-height: 28px;
+  }
+  .rail-salvage > button {
+    padding-top: 5px;
+  }
+}
+@media (max-width: 900px) {
+  .objective-stack {
+    left: 12px;
+    top: 15px;
+    width: calc(100vw - 170px);
+    max-width: 230px;
+    gap: 7px;
+  }
+  .in-world #toasts {
+    top: 315px;
+    left: 12px;
+    width: 170px;
+    max-width: 170px;
+  }
+  .in-world .toast {
+    font-size: 9px;
+    padding: 8px 10px;
+  }
+}
+@media (max-width: 900px) and (max-height: 590px) {
+  .objective-stack {
+    width: 190px;
+    max-width: 26vw;
+  }
+  .in-world #toasts {
+    top: 190px;
+    width: 155px;
+    max-width: 155px;
+  }
+}
+.combat-guidance {
+  position: absolute;
+  bottom: 217px;
+  left: var(--combat-center);
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 9px;
+  width: 300px;
+  max-width: calc(100vw - 26px);
+}
+.hud .combat-guidance > .journey-compass,
+.hud .combat-guidance > .interaction,
+.hud .combat-guidance > .pickup-toast {
+  position: static;
+  transform: none;
+  left: auto;
+  bottom: auto;
+  margin: 0;
+  max-width: 100%;
+}
+.bottom-center .onboarding {
+  display: none;
+}
+.has-loot .combat-guidance > .journey-compass {
+  display: none;
+}
+@media (pointer: coarse) {
+  #touch-controls {
+    position: fixed;
+    inset: 0;
+    height: 100%;
+  }
+}
+@media (max-width: 900px) {
+  .combat-guidance {
+    bottom: 155px;
+    gap: 7px;
+    width: 270px;
+  }
+  .bottom-center .player-panel {
+    width: min(224px, calc(100vw - 180px));
+    min-width: 180px;
+  }
+  .bottom-center .portrait {
+    display: none;
+  }
+  .hud .objective-stack > .quest-tracker {
+    display: block;
+  }
+  .in-dungeon .hud .objective-stack > .quest-tracker {
+    display: none;
+  }
+}
+@media (max-height: 590px) {
+  .combat-guidance {
+    bottom: 135px;
+    gap: 7px;
+  }
+}
+
+.in-combat .combat-guidance > .journey-compass {
+  display: none;
+}
+@media (max-width: 900px) and (max-height: 590px) {
+  .bottom-center .hotbar {
+    gap: 4px;
+    padding: 6px;
+  }
+  .bottom-center .hotbar .skill {
+    width: 40px;
+  }
+  .bottom-center .hotbar-divider {
+    margin: 0 2px;
+  }
+}
+.hud .objective-stack > #event-banner {
+  position: static;
+  left: auto;
+  right: auto;
+  top: auto;
+  transform: none;
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  padding: 10px 12px;
+}
+.hud .objective-stack > #event-banner > span {
+  font-size: 8px;
+}
+.hud .objective-stack > #event-banner small {
+  font-size: 8px;
+}
+
+/* The minimap sits in a frame so its range control can overlap the canvas corner. */
+.minimap-frame {
+  position: relative;
+}
+.minimap-zoom {
+  position: absolute;
+  right: 5px;
+  bottom: 5px;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  font-size: 8px;
+  letter-spacing: 0.08em;
+  color: #e2d3a6;
+  background: #132523d9;
+  border: 1px solid #cbb98055;
+  border-radius: 3px;
+  pointer-events: auto;
+}
+.minimap-zoom:hover {
+  color: var(--gold);
+  border-color: #cbb980aa;
+}
+.minimap-zoom kbd {
+  font-size: 6px;
+  height: 12px;
+  padding: 0 3px;
+}
+@media (max-width: 900px) {
+  .minimap-zoom kbd {
+    display: none;
+  }
+  .minimap-zoom {
+    right: 3px;
+    bottom: 3px;
+    padding: 2px 4px;
+  }
+}
+
+/* The build readout: seven rows a beginner can read without hovering anything. */
+.stat-block {
+  display: grid;
+  gap: 2px;
+  margin-bottom: 10px;
+}
+.stat-row {
+  display: grid;
+  grid-template-columns: 1fr auto 9px;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 2px 4px;
+  font-size: 10px;
+  color: #b9c6b4;
+  border-left: 2px solid transparent;
+  position: relative;
+}
+.stat-row > b {
+  font-weight: 600;
+  color: #ecdfb6;
+  font-variant-numeric: tabular-nums;
+}
+.stat-row.derived {
+  margin-top: 3px;
+  padding-top: 4px;
+  border-top: 1px solid #c6bc8522;
+  color: #9fb3a6;
+}
+.stat-row.derived > b {
+  color: #d9c48f;
+}
+.stat-pip {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  border: 1px solid #7d8b7b;
+  justify-self: end;
+}
+/* A filled ember pip is the per-slot goal: this stat is as high as its tier allows. */
+.stat-pip.maxed {
+  background: var(--gold);
+  border-color: var(--gold);
+  box-shadow: 0 0 5px #e5c18b88;
+}
+.stat-delta {
+  position: absolute;
+  right: 15px;
+  font-size: 9px;
+  font-style: normal;
+  font-variant-numeric: tabular-nums;
+  background: #142824ee;
+  padding: 0 3px;
+}
+.stat-row.up {
+  border-left-color: #a4d681;
+  color: #cfe0be;
+}
+.stat-row.down {
+  border-left-color: #e08d78;
+  color: #e5c4b6;
+}
+.stat-row.up .stat-delta {
+  color: #b9d791;
+}
+.stat-row.down .stat-delta {
+  color: #eda08a;
+}
+.trait-line {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-bottom: 11px;
+}
+.trait-line > span {
+  font-size: 8px;
+  letter-spacing: 0.06em;
+  padding: 2px 5px;
+  color: #d7c79a;
+  border: 1px solid #c9b98055;
+  border-radius: 2px;
+  background: #d4b67310;
+  cursor: help;
+}
+.trait-line.empty {
+  font-size: 8px;
+  color: #7f9086;
+}
+/* Two columns where the rail is tight, so the readout never pushes the satchel off screen. */
+@media (max-width: 1200px) {
+  .stat-block {
+    grid-template-columns: 1fr 1fr;
+    gap: 2px 9px;
+  }
+  .stat-row.derived {
+    grid-column: 1 / -1;
+  }
+}
+@media (max-width: 900px) {
+  .inventory-rail #hud-stats {
+    display: none;
+  }
+}
+@media (min-width: 901px) and (max-height: 700px) {
+  .stat-row.derived,
+  .trait-line {
+    display: none;
+  }
+}
+
+/* Bestiary line under a plate, shown only while C is held. */
+.enemy-label small {
+  display: block;
+  margin-top: 3px;
+  padding: 2px 5px;
+  font-size: 7px;
+  line-height: 1.5;
+  max-width: 190px;
+  color: #d8e0cd;
+  background: #12241fe8;
+  border: 1px solid #c9b98044;
+  border-radius: 2px;
+  white-space: normal;
+}
+.enemy-label[data-threat='deadly'] > i {
+  border-color: #e88c7688;
+}
+/* Standing three levels under the band: a warm edge, never a filter over the fight. */
+.over-my-head #damage-flash {
+  box-shadow: inset 0 0 170px 40px #7d3a2426;
+}
+
+/* The same build readout inside the satchel panel, which is how phones reach it. */
+.panel-build {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 8px;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+  border: 1px solid #b2c6a624;
+  border-radius: 8px;
+  background: #9cc6a709;
+}
+.panel-build > span {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  position: relative;
+}
+.panel-build small {
+  font-size: 9px;
+  letter-spacing: 0.08em;
+  color: #93aa9d;
+}
+.panel-build b {
+  font-size: 14px;
+  font-weight: 500;
+  color: #ecdfb6;
+  font-variant-numeric: tabular-nums;
+}
+.panel-build .stat-pip {
+  position: absolute;
+  top: 2px;
+  right: 0;
+}
+@media (max-width: 900px) {
+  .panel-build {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}

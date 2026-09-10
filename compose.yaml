@@ -1,0 +1,22 @@
+services:
+  game:
+    build: .
+    restart: unless-stopped
+    init: true
+    ports:
+      - '127.0.0.1:8790:8790'
+    environment:
+      NODE_ENV: production
+      HOST: 0.0.0.0
+      PORT: 8790
+      DATA_PATH: /app/data/emberwilds.sqlite
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+    volumes:
+      - emberwilds-data:/app/data
+    stop_grace_period: 10s
+    mem_limit: 1g
+    cpus: 2
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  emberwilds-data:

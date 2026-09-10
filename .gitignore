@@ -1,0 +1,11 @@
+node_modules/
+dist/
+dist-server/
+data/
+.env
+*.log
+test-results/
+playwright-report/
+.DS_Store
+release/*.tar.gz
+release/*.sha256

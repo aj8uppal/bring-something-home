@@ -1,0 +1,54 @@
+name: Verify Bring Something Home
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - run: npm test
+      - run: npm run test:balance
+      - run: npm run test:expeditions
+      - run: npm run test:journey
+      - run: npm run test:depth
+      - run: npm run test:e2e
+      - run: npm run test:load
+      - run: node scripts/package-release.mjs
+      - run: npm run test:release
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: browser-evidence
+          path: |
+            playwright-report/
+            test-results/
+  container:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - run: docker build -t emberwilds:ci .
+      - name: Smoke test container
+        run: |
+          docker run -d --name emberwilds-ci -p 127.0.0.1:8792:8790 emberwilds:ci
+          for attempt in $(seq 1 30); do
+            if curl --fail --silent http://127.0.0.1:8792/api/health; then
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs emberwilds-ci
+          exit 1
+      - run: docker stop emberwilds-ci
+        if: always()

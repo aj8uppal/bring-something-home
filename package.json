@@ -1,0 +1,49 @@
+{
+  "name": "bring-something-home",
+  "version": "1.4.1",
+  "private": true,
+  "type": "module",
+  "description": "A cooperative 3D bullet-hell RPG of shared expeditions, personal loot, and persistent legacy.",
+  "engines": {
+    "node": ">=24.15.0"
+  },
+  "scripts": {
+    "dev": "node scripts/dev.mjs",
+    "dev:client": "vite --host 127.0.0.1",
+    "dev:server": "tsx watch server/main.ts",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.server.json --noEmit",
+    "build": "npm run typecheck && vite build && tsc -p tsconfig.server.json",
+    "start": "node dist-server/server/main.js",
+    "preview": "npm start",
+    "test": "tsx --test tests/*.test.ts",
+    "test:e2e": "playwright test",
+    "test:load": "tsx scripts/load-test.ts",
+    "backup": "tsx scripts/backup.ts",
+    "verify": "npm run build && npm test && npm run test:e2e",
+    "admin": "tsx scripts/admin.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test:balance": "tsx scripts/balance.ts",
+    "test:expeditions": "tsx scripts/expedition-check.ts",
+    "release": "npm run build && node scripts/package-release.mjs",
+    "test:release": "node scripts/release-check.mjs",
+    "test:journey": "tsx scripts/journey-check.ts",
+    "test:depth": "node scripts/depth-check.mjs",
+    "test:e2e:native": "NATIVE_RENDERING=1 playwright test",
+    "test:e2e:software": "SOFTWARE_RENDERING=1 playwright test"
+  },
+  "dependencies": {
+    "three": "^0.185.1",
+    "ws": "^8.21.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.63.0",
+    "@types/node": "^24.0.0",
+    "@types/three": "^0.185.4",
+    "@types/ws": "^8.18.1",
+    "prettier": "^3.9.6",
+    "tsx": "^4.23.13",
+    "typescript": "^7.0.2",
+    "vite": "^8.2.2"
+  }
+}
